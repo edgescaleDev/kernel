@@ -10,7 +10,7 @@ import (
 // handleHealthz is a liveness probe. Returns 200 if the kernel process is running.
 // Kubernetes uses this to decide whether to restart the pod.
 func (k *Kernel) handleHealthz(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	sdk.OK(c, gin.H{"status": "ok"})
 }
 
 // handleReadyz is a readiness probe. Returns 200 only if the kernel

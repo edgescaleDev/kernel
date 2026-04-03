@@ -54,36 +54,23 @@ type ResultInfo struct {
 
 // OK sends a 200 response with the result.
 func OK(c *gin.Context, result any) {
-	c.JSON(http.StatusOK, Envelope{
-		Success: true,
-		Result:  result,
-	})
+	success(c, http.StatusOK, result, nil, []string{})
 }
 
 // OKWithMessage sends a 200 response with the result and an informational message.
 func OKWithMessage(c *gin.Context, result any, message string) {
-	c.JSON(http.StatusOK, Envelope{
-		Success:  true,
-		Result:   result,
-		Messages: []string{message},
-	})
+	success(c, http.StatusOK, result, nil, []string{message})
 }
 
 // Created sends a 201 response with the created resource.
 func Created(c *gin.Context, result any) {
-	c.JSON(http.StatusCreated, Envelope{
-		Success: true,
-		Result:  result,
-	})
+	success(c, http.StatusCreated, result, nil, []string{})
 }
 
 // Accepted sends a 202 response for asynchronous operations.
 // The result should contain an operation ID or status URL.
 func Accepted(c *gin.Context, result any) {
-	c.JSON(http.StatusAccepted, Envelope{
-		Success: true,
-		Result:  result,
-	})
+	success(c, http.StatusAccepted, result, nil, []string{})
 }
 
 // NoContent sends a 204 response with no body.
@@ -93,10 +80,16 @@ func NoContent(c *gin.Context) {
 
 // List sends a 200 response with a paginated list.
 func List(c *gin.Context, items any, info ResultInfo) {
-	c.JSON(http.StatusOK, Envelope{
+	success(c, http.StatusOK, items, &info, []string{})
+}
+
+func success(c *gin.Context, status int, result any, info *ResultInfo, messages []string) {
+	c.JSON(status, Envelope{
 		Success:    true,
-		Result:     items,
-		ResultInfo: &info,
+		Result:     result,
+		ResultInfo: info,
+		Messages:   messages,
+		Errors:     []APIError{},
 	})
 }
 
@@ -111,6 +104,7 @@ func Error(c *gin.Context, err *ServiceError) {
 		Errors: []APIError{
 			{Code: err.Code, Message: err.Message},
 		},
+		Messages: []string{},
 	})
 }
 

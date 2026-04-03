@@ -156,7 +156,7 @@ func (k *Kernel) checkPermission(required string) gin.HandlerFunc {
 		}
 
 		// Check pipe-separated OR permissions.
-		for _, perm := range strings.Split(required, "|") {
+		for perm := range strings.SplitSeq(required, "|") {
 			if ps.Has(strings.TrimSpace(perm)) {
 				c.Next()
 				return
