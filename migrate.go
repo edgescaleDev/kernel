@@ -25,6 +25,10 @@ func (k *Kernel) Migrate() error {
 	}
 
 	// Run each module's migrations in dependency order.
+	if err := k.runModuleMigrations("kernel", "public", KernelMigrations()); err != nil {
+		return fmt.Errorf("migrate kernel: %w", err)
+	}
+
 	for _, m := range k.Modules() {
 		manifest := m.Manifest()
 		migrations := m.Migrations()
