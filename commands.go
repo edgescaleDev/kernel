@@ -32,6 +32,11 @@ func (k *Kernel) buildRootCommand() *cobra.Command {
 		k.orgCommand(),
 	)
 
+	// Add any custom commands registered by the consumer.
+	if len(k.customCommands) > 0 {
+		root.AddCommand(k.customCommands...)
+	}
+
 	return root
 }
 

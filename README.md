@@ -74,6 +74,28 @@ Managing the registered capabilities and auditing their dependency graph.
 ./kernel org deprovision [org-id] --confirm
 ```
 
+### Custom Commands
+
+Consumers can also inject their own custom Cobra commands into the kernel CLI:
+
+```go
+func main() {
+    k := kernel.New(cfg)
+    
+    // Register custom commands
+    k.AddCommand(&cobra.Command{
+        Use:   "import",
+        Short: "Import legacy data into the system",
+        RunE: func(cmd *cobra.Command, args []string) error {
+            // Your custom logic here
+            return nil
+        },
+    })
+    
+    k.Execute()
+}
+```
+
 ## Getting Started
 
 1. Set up dependencies: `go mod download`.

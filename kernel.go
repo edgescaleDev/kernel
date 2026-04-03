@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
+	"github.com/spf13/cobra"
 	"go.edgescale.dev/kernel/sdk"
 	"gorm.io/gorm"
 )
@@ -57,6 +58,9 @@ type Kernel struct {
 	workflows    sdk.WorkflowRegistry
 	activities   sdk.ActivityRegistry
 
+	// Custom CLI commands registered by the consumer.
+	customCommands []*cobra.Command
+
 	// Shutdown coordination.
 	shutdownOnce sync.Once
 }
@@ -97,6 +101,12 @@ func (k *Kernel) MustRegister(m sdk.Module) {
 	if err := k.Register(m); err != nil {
 		panic(err)
 	}
+}
+
+// AddCommand allows consumers to register custom CLI commands.
+// Must be called before Execute().
+func (k *Kernel) AddCommand(cmd *cobra.Command) {
+	k.customCommands = append(k.customCommands, cmd)
 }
 
 // SetTaskExecutor sets the pluggable task executor (Temporal, inline, etc.).
