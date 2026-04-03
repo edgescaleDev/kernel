@@ -2,12 +2,12 @@ package kernel
 
 import (
 	"log/slog"
-	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"go.edgescale.dev/kernel/sdk"
 )
 
 // requestID generates a unique request ID and sets it on the context and response header.
@@ -59,10 +59,7 @@ func (k *Kernel) recovery() gin.HandlerFunc {
 					"path", c.Request.URL.Path,
 					"request_id", c.GetString("request_id"),
 				)
-				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-					"success": false,
-					"errors":  []gin.H{{"code": "internal_error", "message": "an unexpected error occurred"}},
-				})
+				sdk.Error(c, sdk.Internal("an unexpected error occurred"))
 			}
 		}()
 		c.Next()
@@ -77,19 +74,13 @@ func (k *Kernel) authenticate() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		header := c.GetHeader("Authorization")
 		if header == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"success": false,
-				"errors":  []gin.H{{"code": "unauthorized", "message": "missing Authorization header"}},
-			})
+			sdk.Error(c, sdk.Unauthorized("missing Authorization header"))
 			return
 		}
 
 		token := strings.TrimPrefix(header, "Bearer ")
 		if token == header {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"success": false,
-				"errors":  []gin.H{{"code": "unauthorized", "message": "invalid Authorization format, expected Bearer token"}},
-			})
+			sdk.Error(c, sdk.Unauthorized("invalid Authorization format, expected <Bearer token>"))
 			return
 		}
 
@@ -106,19 +97,13 @@ func (k *Kernel) resolveOrg() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		orgHeader := c.GetHeader("X-Org-ID")
 		if orgHeader == "" {
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
-				"success": false,
-				"errors":  []gin.H{{"code": "bad_request", "message": "missing X-Org-ID header"}},
-			})
+			sdk.Error(c, sdk.BadRequest("missing X-Org-ID header"))
 			return
 		}
 
 		orgID, err := uuid.Parse(orgHeader)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
-				"success": false,
-				"errors":  []gin.H{{"code": "bad_request", "message": "X-Org-ID must be a valid UUID"}},
-			})
+			sdk.Error(c, sdk.BadRequest("invalid organization id"))
 			return
 		}
 
@@ -166,10 +151,7 @@ func (k *Kernel) checkPermission(required string) gin.HandlerFunc {
 
 		ps, ok := permsVal.(*PermissionSet)
 		if !ok {
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-				"success": false,
-				"errors":  []gin.H{{"code": "internal_error", "message": "invalid permission set in context"}},
-			})
+			sdk.Error(c, sdk.Internal("invalid permission set in context"))
 			return
 		}
 
@@ -181,9 +163,6 @@ func (k *Kernel) checkPermission(required string) gin.HandlerFunc {
 			}
 		}
 
-		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-			"success": false,
-			"errors":  []gin.H{{"code": "forbidden", "message": "insufficient permissions"}},
-		})
+		sdk.Error(c, sdk.Forbidden("insufficient permissions"))
 	}
 }
