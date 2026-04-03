@@ -7,7 +7,7 @@ import (
 )
 
 // OutboxWriter provides durable event publishing within the same database transaction.
-// Events written via the outbox are guaranteed to be delivered — they are stored
+// Events written via the outbox are guaranteed to be delivered - they are stored
 // in the same transaction as the business data, then polled and dispatched by the kernel.
 type OutboxWriter interface {
 	// WriteEvent writes an event to the transactional outbox within the current transaction.

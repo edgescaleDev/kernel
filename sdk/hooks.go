@@ -13,16 +13,16 @@ type HookPoint string
 
 // HookHandler is a function that intercepts a hook point.
 // Returning an AbortError from a Before hook stops the operation.
-// After hooks cannot abort — they run for side effects only.
+// After hooks cannot abort - they run for side effects only.
 type HookHandler func(ctx context.Context, payload any) error
 
 // HookRegistry manages sync interceptors for service operations.
 // Services register hooks during RegisterHooks(), and the kernel fires them
 // at the appropriate lifecycle points.
 type HookRegistry struct {
-	mu      sync.RWMutex
-	before  map[HookPoint][]HookHandler
-	after   map[HookPoint][]HookHandler
+	mu     sync.RWMutex
+	before map[HookPoint][]HookHandler
+	after  map[HookPoint][]HookHandler
 }
 
 // NewHookRegistry creates a new empty HookRegistry.

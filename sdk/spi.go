@@ -43,8 +43,8 @@ type Module interface {
 
 	// Migrations returns an embedded filesystem of SQL migration files.
 	// Files must follow the golang-migrate naming convention:
-	//   {version}_{description}.up.sql   — forward migration
-	//   {version}_{description}.down.sql — rollback migration
+	//   {version}_{description}.up.sql   - forward migration
+	//   {version}_{description}.down.sql - rollback migration
 	// Example: 000001_create_orders.up.sql, 000001_create_orders.down.sql
 	Migrations() fs.FS
 
@@ -91,9 +91,9 @@ type Manifest struct {
 	// Schema is the PostgreSQL schema name for this service's tables.
 	//
 	// Two modes:
-	//   - "module_{id}" (e.g., "module_billing") — service gets its own isolated schema.
+	//   - "module_{id}" (e.g., "module_billing") - service gets its own isolated schema.
 	//     The kernel auto-creates it and sets search_path on every query.
-	//   - "public" — service tables live in the public schema alongside kernel tables.
+	//   - "public" - service tables live in the public schema alongside kernel tables.
 	//     No schema creation, no search_path change. Simpler but no isolation.
 	//
 	// Consumers who prefer a single-schema architecture can set all services to "public".
@@ -128,7 +128,7 @@ type Manifest struct {
 	StoragePrefix string
 
 	// Tags are consumer-defined labels for grouping and filtering services.
-	// The kernel does not interpret these — they are for the consumer's use.
+	// The kernel does not interpret these - they are for the consumer's use.
 	// Example: ["experimental", "premium", "internal", "beta"]
 	Tags []string
 }
@@ -164,23 +164,23 @@ type ConfigFieldDef struct {
 	// Type is the input type that determines both validation and UI rendering.
 	//
 	// Supported types:
-	//   "text"         — single-line text input
-	//   "textarea"     — multi-line text input
-	//   "number"       — numeric input (use Min/Max for range)
-	//   "bool"         — toggle switch
-	//   "select"       — single-choice dropdown (requires Options)
-	//   "radio"        — single-choice radio group (requires Options)
-	//   "multiselect"  — multi-choice dropdown (requires Options)
-	//   "checkbox"     — multi-choice checkbox group (requires Options)
-	//   "date"         — single date picker
-	//   "daterange"    — start/end date range picker
-	//   "color"        — color picker (hex value)
-	//   "url"          — URL input with format validation
-	//   "email"        — email input with format validation
-	//   "secret"       — masked input (API keys, tokens)
-	//   "json"         — JSON editor
-	//   "uuid"         — UUID input with format validation
-	//   "reference"    — entity picker from another module (requires Ref)
+	//   "text"         - single-line text input
+	//   "textarea"     - multi-line text input
+	//   "number"       - numeric input (use Min/Max for range)
+	//   "bool"         - toggle switch
+	//   "select"       - single-choice dropdown (requires Options)
+	//   "radio"        - single-choice radio group (requires Options)
+	//   "multiselect"  - multi-choice dropdown (requires Options)
+	//   "checkbox"     - multi-choice checkbox group (requires Options)
+	//   "date"         - single date picker
+	//   "daterange"    - start/end date range picker
+	//   "color"        - color picker (hex value)
+	//   "url"          - URL input with format validation
+	//   "email"        - email input with format validation
+	//   "secret"       - masked input (API keys, tokens)
+	//   "json"         - JSON editor
+	//   "uuid"         - UUID input with format validation
+	//   "reference"    - entity picker from another module (requires Ref)
 	Type string
 
 	// Default is the default value when not explicitly set.

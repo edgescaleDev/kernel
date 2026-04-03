@@ -7,7 +7,7 @@ import (
 )
 
 // Envelope is the standard API response wrapper, inspired by the Cloudflare v4 API.
-// Every endpoint returns this shape — clients always know what to expect.
+// Every endpoint returns this shape - clients always know what to expect.
 type Envelope struct {
 	// Success indicates whether the request was successful.
 	Success bool `json:"success"`

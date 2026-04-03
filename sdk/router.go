@@ -3,7 +3,7 @@ package sdk
 import "github.com/gin-gonic/gin"
 
 // Router provides permission-enforced route registration for services.
-// Every route must declare a permission string — the kernel's RBAC middleware
+// Every route must declare a permission string - the kernel's RBAC middleware
 // enforces it before the handler executes.
 //
 // Routes are mounted under /v1/{service_id}/ by default.
