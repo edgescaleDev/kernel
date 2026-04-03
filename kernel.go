@@ -41,6 +41,8 @@ type Kernel struct {
 	// Pluggable implementations (set by consumer before Boot).
 	taskExecutor sdk.TaskExecutor
 	searchEngine sdk.SearchEngine
+	workflows    sdk.WorkflowRegistry
+	activities   sdk.ActivityRegistry
 
 	// Shutdown coordination.
 	shutdownOnce sync.Once
