@@ -3,7 +3,6 @@ package kernel
 import (
 	"fmt"
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"go.edgescale.dev/kernel/sdk"
@@ -60,11 +59,22 @@ func (k *Kernel) setupRouter() {
 	}
 }
 
-// Serve starts the HTTP server. Must be called after Boot().
+// Serve initializes modules, syncs the registry, builds routes, and starts
+// the HTTP server. Must be called after Boot().
 func (k *Kernel) Serve() error {
+	// Initialize modules in dependency order.
+	if err := k.initModules(); err != nil {
+		return fmt.Errorf("kernel: %w", err)
+	}
+
+	// Sync the in-memory module manifests to the database.
+	if err := k.syncRegistry(); err != nil {
+		return fmt.Errorf("kernel: %w", err)
+	}
+
 	k.setupRouter()
 
-	addr := ":" + strconv.Itoa(k.cfg.Server.Port)
+	addr := fmt.Sprintf(":%d", k.cfg.Server.Port)
 	k.httpServer = &http.Server{
 		Addr:         addr,
 		Handler:      k.engine,

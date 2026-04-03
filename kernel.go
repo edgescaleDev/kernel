@@ -1,8 +1,11 @@
 package kernel
 
 import (
+	"embed"
 	"fmt"
+	"io/fs"
 	"log/slog"
+	"maps"
 	"net/http"
 	"sync"
 
@@ -11,6 +14,16 @@ import (
 	"go.edgescale.dev/kernel/sdk"
 	"gorm.io/gorm"
 )
+
+//go:embed migrations/*.sql
+var kernelMigrationsFS embed.FS
+
+// KernelMigrations returns the embedded filesystem containing the kernel's
+// SQL migration files. Used by the migration orchestrator.
+func KernelMigrations() fs.FS {
+	sub, _ := fs.Sub(kernelMigrationsFS, "migrations")
+	return sub
+}
 
 // Kernel is the core runtime that manages modules, infrastructure,
 // and the HTTP server lifecycle.
@@ -190,4 +203,27 @@ func (k *Kernel) Redis() *redis.Client {
 // Returns nil if Boot() has not been called.
 func (k *Kernel) DepOrder() []string {
 	return k.depOrder
+}
+
+// Manifests returns a copy of the manifest map.
+// Used by CLI commands to inspect registered modules.
+func (k *Kernel) Manifests() map[string]sdk.Manifest {
+	result := make(map[string]sdk.Manifest, len(k.manifests))
+	maps.Copy(result, k.manifests)
+	return result
+}
+
+// Execute builds a Cobra command tree and runs it.
+// This is the main entry point for consumer applications.
+//
+//	func main() {
+//	    k := kernel.New(kernel.LoadConfig())
+//	    k.Register(billing.New())
+//	    k.Execute()
+//	}
+func (k *Kernel) Execute() {
+	rootCmd := k.buildRootCommand()
+	if err := rootCmd.Execute(); err != nil {
+		k.logger.Error("command failed", "error", err)
+	}
 }
