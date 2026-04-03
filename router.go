@@ -1,0 +1,82 @@
+package kernel
+
+import (
+	"fmt"
+	"net/http"
+	"strconv"
+
+	"github.com/gin-gonic/gin"
+	"go.edgescale.dev/kernel/sdk"
+)
+
+// setupRouter creates the Gin engine, applies the global middleware chain,
+// mounts kernel handlers, and delegates per-module routes.
+func (k *Kernel) setupRouter() {
+	if !k.cfg.Dev.Mode {
+		gin.SetMode(gin.ReleaseMode)
+	}
+
+	k.engine = gin.New()
+
+	// Global middleware - applied to every request.
+	k.engine.Use(
+		k.requestID(),
+		k.accessLog(),
+		k.recovery(),
+	)
+
+	// Kernel-owned routes (no auth required).
+	k.engine.GET("/healthz", k.handleHealthz)
+	k.engine.GET("/readyz", k.handleReadyz)
+
+	// Authenticated kernel API routes.
+	v1 := k.engine.Group("/v1")
+	v1.Use(k.authenticate())
+	v1.GET("/me", k.handleMe)
+	v1.GET("/modules", k.handleListModules)
+	v1.GET("/modules/active", k.handleActiveModules)
+
+	// Mount each module's routes under /v1/{module_id}/ and /v2/{module_id}/.
+	for _, m := range k.Modules() {
+		manifest := m.Manifest()
+		moduleID := manifest.ID
+
+		authenticated := v1.Group("/" + moduleID)
+		authenticated.Use(k.resolveOrg(), k.moduleActivation(moduleID))
+
+		public := k.engine.Group("/v1/" + moduleID)
+
+		v2Auth := k.engine.Group("/v2/" + moduleID)
+		v2Auth.Use(k.authenticate(), k.resolveOrg(), k.moduleActivation(moduleID))
+
+		router := sdk.NewRouter(authenticated, v2Auth, public, k.checkPermission, moduleID)
+		m.RegisterRoutes(router)
+
+		routes := router.Routes()
+		k.logger.Info("mounted routes",
+			"module", moduleID,
+			"count", len(routes),
+		)
+	}
+}
+
+// Serve starts the HTTP server. Must be called after Boot().
+func (k *Kernel) Serve() error {
+	k.setupRouter()
+
+	addr := ":" + strconv.Itoa(k.cfg.Server.Port)
+	k.httpServer = &http.Server{
+		Addr:         addr,
+		Handler:      k.engine,
+		ReadTimeout:  k.cfg.Server.ReadTimeout,
+		WriteTimeout: k.cfg.Server.WriteTimeout,
+		IdleTimeout:  k.cfg.Server.IdleTimeout,
+	}
+
+	k.logger.Info("listening", "addr", addr)
+
+	if err := k.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return fmt.Errorf("kernel: serve failed: %w", err)
+	}
+	return nil
+}

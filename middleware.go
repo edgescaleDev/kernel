@@ -1,0 +1,189 @@
+package kernel
+
+import (
+	"log/slog"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+)
+
+// requestID generates a unique request ID and sets it on the context and response header.
+func (k *Kernel) requestID() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.GetHeader("X-Request-ID")
+		if id == "" {
+			id = uuid.New().String()
+		}
+		c.Set("request_id", id)
+		c.Header("X-Request-ID", id)
+		c.Next()
+	}
+}
+
+// accessLog logs each request with method, path, status, and duration.
+func (k *Kernel) accessLog() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		start := time.Now()
+		c.Next()
+		duration := time.Since(start)
+
+		status := c.Writer.Status()
+		level := slog.LevelInfo
+		if status >= 500 {
+			level = slog.LevelError
+		} else if status >= 400 {
+			level = slog.LevelWarn
+		}
+
+		k.logger.Log(c.Request.Context(), level, "request",
+			"method", c.Request.Method,
+			"path", c.Request.URL.Path,
+			"status", status,
+			"duration", duration.String(),
+			"request_id", c.GetString("request_id"),
+			"ip", c.ClientIP(),
+		)
+	}
+}
+
+// recovery catches panics in handlers and returns a 500 instead of crashing the process.
+func (k *Kernel) recovery() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		defer func() {
+			if err := recover(); err != nil {
+				k.logger.Error("panic recovered",
+					"error", err,
+					"path", c.Request.URL.Path,
+					"request_id", c.GetString("request_id"),
+				)
+				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+					"success": false,
+					"errors":  []gin.H{{"code": "internal_error", "message": "an unexpected error occurred"}},
+				})
+			}
+		}()
+		c.Next()
+	}
+}
+
+// authenticate validates the Authorization header and sets user context.
+// For now this is a stub that extracts and validates the bearer token format.
+// The full implementation (JWT verification, API key lookup, OAuth2 token)
+// will be completed when the IAM module is built.
+func (k *Kernel) authenticate() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		header := c.GetHeader("Authorization")
+		if header == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"errors":  []gin.H{{"code": "unauthorized", "message": "missing Authorization header"}},
+			})
+			return
+		}
+
+		token := strings.TrimPrefix(header, "Bearer ")
+		if token == header {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"errors":  []gin.H{{"code": "unauthorized", "message": "invalid Authorization format, expected Bearer token"}},
+			})
+			return
+		}
+
+		// TODO: Actual token verification will be implemented with the IAM module.
+		// For now, store the raw token so downstream middleware can use it.
+		c.Set("auth_token", token)
+		c.Next()
+	}
+}
+
+// resolveOrg extracts the X-Org-ID header, validates it as a UUID,
+// and stores it in the gin context for downstream use.
+func (k *Kernel) resolveOrg() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		orgHeader := c.GetHeader("X-Org-ID")
+		if orgHeader == "" {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"errors":  []gin.H{{"code": "bad_request", "message": "missing X-Org-ID header"}},
+			})
+			return
+		}
+
+		orgID, err := uuid.Parse(orgHeader)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"errors":  []gin.H{{"code": "bad_request", "message": "X-Org-ID must be a valid UUID"}},
+			})
+			return
+		}
+
+		c.Set("org_id", orgID)
+		c.Next()
+	}
+}
+
+// moduleActivation checks whether a module is active for the requesting org.
+// Core modules always pass. Feature/integration modules are checked against
+// the module_activations table (cached in Redis).
+func (k *Kernel) moduleActivation(moduleID string) gin.HandlerFunc {
+	manifest, exists := k.manifests[moduleID]
+	if !exists {
+		// Should never happen - programming error.
+		panic("kernel: moduleActivation called for unregistered module: " + moduleID)
+	}
+
+	// Core modules always pass.
+	if manifest.Type.IsCore() {
+		return func(c *gin.Context) { c.Next() }
+	}
+
+	return func(c *gin.Context) {
+		// TODO: Check module_activations table (Redis cached) once the
+		// registry module is implemented. For now, all modules pass.
+		c.Next()
+	}
+}
+
+// checkPermission returns middleware that enforces the given permission string.
+// Supports exact match, namespace wildcards (e.g., "orders.*"), and pipe-separated
+// OR expressions (e.g., "orders.read|billing.read" - any match passes).
+func (k *Kernel) checkPermission(required string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Get the user's permission set from context (set by authenticate/resolveUser).
+		permsVal, exists := c.Get("permissions")
+		if !exists {
+			// No permissions loaded yet - allow through (will be enforced when
+			// IAM populates permissions during authenticate).
+			// TODO: Change to deny-by-default once IAM is wired.
+			c.Next()
+			return
+		}
+
+		ps, ok := permsVal.(*PermissionSet)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"errors":  []gin.H{{"code": "internal_error", "message": "invalid permission set in context"}},
+			})
+			return
+		}
+
+		// Check pipe-separated OR permissions.
+		for _, perm := range strings.Split(required, "|") {
+			if ps.Has(strings.TrimSpace(perm)) {
+				c.Next()
+				return
+			}
+		}
+
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+			"success": false,
+			"errors":  []gin.H{{"code": "forbidden", "message": "insufficient permissions"}},
+		})
+	}
+}

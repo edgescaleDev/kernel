@@ -33,6 +33,9 @@ type ServerConfig struct {
 	// WriteTimeout is the maximum duration for writing the response.
 	WriteTimeout time.Duration `mapstructure:"write_timeout"`
 
+	// IdleTimeout is the maximum duration for idle connections.
+	IdleTimeout time.Duration `mapstructure:"idle_timeout"`
+
 	// ShutdownTimeout is the maximum time to wait for graceful shutdown.
 	ShutdownTimeout time.Duration `mapstructure:"shutdown_timeout"`
 }
@@ -110,6 +113,7 @@ func DefaultConfig() Config {
 			Port:            8080,
 			ReadTimeout:     15 * time.Second,
 			WriteTimeout:    15 * time.Second,
+			IdleTimeout:     60 * time.Second,
 			ShutdownTimeout: 30 * time.Second,
 		},
 		Database: DatabaseConfig{

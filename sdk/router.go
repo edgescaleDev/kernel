@@ -1,18 +1,22 @@
 package sdk
 
-import "github.com/gin-gonic/gin"
+import (
+	"strings"
 
-// Router provides permission-enforced route registration for services.
+	"github.com/gin-gonic/gin"
+)
+
+// Router provides permission-enforced route registration for modules.
 // Every route must declare a permission string - the kernel's RBAC middleware
 // enforces it before the handler executes.
 //
-// Routes are mounted under /v1/{service_id}/ by default.
-// Use V2() to register routes under /v2/{service_id}/ for breaking changes.
+// Routes are mounted under /v1/{module_id}/ by default.
+// Use V2() to register routes under /v2/{module_id}/ for breaking changes.
 type Router struct {
-	// v1 is the default route group: /v1/{service_id}/
+	// v1 is the default route group: /v1/{module_id}/
 	v1 *gin.RouterGroup
 
-	// v2 is the versioned route group: /v2/{service_id}/ (nil until V2() is called)
+	// v2 is the versioned route group: /v2/{module_id}/ (nil until V2() is called)
 	v2 *gin.RouterGroup
 
 	// public is the unauthenticated route group.
@@ -21,11 +25,23 @@ type Router struct {
 	// checkPerm returns middleware that enforces the given permission.
 	checkPerm func(string) gin.HandlerFunc
 
-	// serviceID is the owning service's identifier.
-	serviceID string
+	// moduleID is the owning module's identifier.
+	moduleID string
 
 	// routes collects metadata for OpenAPI generation.
 	routes []RouteInfo
+}
+
+// NewRouter creates a Router for the kernel to hand to a module.
+// This is called by the kernel during route mounting - modules never call this directly.
+func NewRouter(v1, v2, public *gin.RouterGroup, checkPerm func(string) gin.HandlerFunc, moduleID string) *Router {
+	return &Router{
+		v1:        v1,
+		v2:        v2,
+		public:    public,
+		checkPerm: checkPerm,
+		moduleID:  moduleID,
+	}
 }
 
 // RouteInfo contains metadata about a registered route, used for OpenAPI generation.
@@ -39,8 +55,8 @@ type RouteInfo struct {
 	// Permission is the required permission string.
 	Permission string
 
-	// ServiceID is the owning service.
-	ServiceID string
+	// ModuleID is the owning module.
+	ModuleID string
 
 	// Version is the API version (1 or 2).
 	Version int
@@ -84,14 +100,14 @@ func (r *Router) PATCH(path, perm string, handlers ...gin.HandlerFunc) {
 	r.register("PATCH", path, perm, 1, handlers...)
 }
 
-// V2 returns a Router scoped to /v2/{service_id}/ for registering
+// V2 returns a Router scoped to /v2/{module_id}/ for registering
 // breaking API changes while keeping v1 alive for backward compatibility.
 func (r *Router) V2() *Router {
 	return &Router{
 		v1:        r.v2, // v2 routes use the v2 group
 		public:    r.public,
 		checkPerm: r.checkPerm,
-		serviceID: r.serviceID,
+		moduleID:  r.moduleID,
 		routes:    r.routes, // shared route collection
 	}
 }
@@ -107,7 +123,7 @@ func (r *Router) register(method, path, perm string, version int, handlers ...gi
 		Method:     method,
 		Path:       path,
 		Permission: perm,
-		ServiceID:  r.serviceID,
+		ModuleID:   r.moduleID,
 		Version:    version,
 	})
 
@@ -143,9 +159,10 @@ func RequireAny(perms ...string) string {
 		return ""
 	}
 	// Join with pipe for the RBAC middleware to parse
-	result := perms[0]
+	var result strings.Builder
+	result.WriteString(perms[0])
 	for _, p := range perms[1:] {
-		result += "|" + p
+		result.WriteString("|" + p)
 	}
-	return result
+	return result.String()
 }

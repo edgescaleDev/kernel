@@ -35,6 +35,11 @@ func (t ModuleType) String() string {
 	}
 }
 
+// IsCore returns true if this module type is always active (no activation check needed).
+func (t ModuleType) IsCore() bool {
+	return t == TypeCore
+}
+
 // Module is the interface that every module must implement.
 // The kernel discovers, wires, and manages modules through this contract.
 type Module interface {
