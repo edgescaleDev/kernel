@@ -99,8 +99,22 @@ func main() {
 ## Getting Started
 
 1. Set up dependencies: `go mod download`.
-2. Ensure you have the required infrastructure (Postgres & Redis).
+2. Ensure you have the required infrastructure (Postgres & Redis running locally).
 3. Wire your system by initializing `kernel.New(cfg)`, registering your modules via `k.Register(my_module.New())`, and running `k.Execute()`.
+
+### Complete Example
+
+For a functional, self-contained reference, check out the [basic application example](examples/basic/main.go) in the `examples/` directory. It demonstrates how to declare a new capability module and hook it into the kernel lifecycle.
+
+To run the example locally:
+
+```bash
+# 1. Start the server (which automatically loads the kernel environment)
+go run examples/basic/main.go serve
+
+# 2. In a separate terminal, test the exposed endpoint
+curl http://localhost:8080/v1/hello/hello
+```
 
 ## Architecture Decisions
 
