@@ -54,7 +54,7 @@ type Organization struct {
 	Metadata  json.RawMessage `json:"metadata"   gorm:"type:jsonb;not null;default:'{}'"`
 	CreatedAt time.Time       `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt time.Time       `json:"updated_at" gorm:"autoUpdateTime"`
-	DeletedAt gorm.DeletedAt  `json:"deleted_at,omitempty" gorm:"index"`
+	DeletedAt gorm.DeletedAt  `json:"deleted_at" gorm:"index"`
 }
 
 func (Organization) TableName() string { return "public.organizations" }
