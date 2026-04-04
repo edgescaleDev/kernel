@@ -53,10 +53,11 @@ type Kernel struct {
 	readers *sdk.ReaderRegistry
 
 	// Pluggable implementations (set by consumer before Boot).
-	taskExecutor sdk.TaskExecutor
-	searchEngine sdk.SearchEngine
-	workflows    sdk.WorkflowRegistry
-	activities   sdk.ActivityRegistry
+	identityProvider sdk.IdentityProvider
+	taskExecutor     sdk.TaskExecutor
+	searchEngine     sdk.SearchEngine
+	workflows        sdk.WorkflowRegistry
+	activities       sdk.ActivityRegistry
 
 	// Custom CLI commands registered by the consumer.
 	customCommands []*cobra.Command
@@ -121,6 +122,12 @@ func (k *Kernel) SetSearchEngine(engine sdk.SearchEngine) {
 	k.searchEngine = engine
 }
 
+// SetIdentityProvider sets the pluggable identity provider (Firebase, Okta, Keycloak, etc.).
+// Must be called before Boot(). If not called, all authentication requests are rejected.
+func (k *Kernel) SetIdentityProvider(provider sdk.IdentityProvider) {
+	k.identityProvider = provider
+}
+
 // SetEventBus sets the event bus implementation.
 // Must be called before Boot(). If not called, a noop bus is used.
 func (k *Kernel) SetEventBus(bus sdk.EventBus) {
@@ -162,6 +169,10 @@ func (k *Kernel) Boot() error {
 // that were not explicitly set by the consumer. This prevents nil
 // dereferences when modules access Tasks, Search, or Bus.
 func (k *Kernel) installFallbacks() {
+	if k.identityProvider == nil {
+		k.logger.Warn("no identity provider set - all authentication will be rejected")
+		k.identityProvider = noopIdentityProvider{}
+	}
 	if k.bus == nil {
 		k.logger.Warn("no event bus set - using noop bus")
 		k.bus = noopEventBus{}

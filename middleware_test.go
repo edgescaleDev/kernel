@@ -1,12 +1,15 @@
 package kernel
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.edgescale.dev/kernel/sdk"
 )
 
 func init() {
@@ -104,13 +107,30 @@ func TestAuthenticate_InvalidFormat(t *testing.T) {
 	}
 }
 
+// mockIdentityProvider accepts any token and returns a fixed Identity.
+type mockIdentityProvider struct{}
+
+func (mockIdentityProvider) ValidateToken(_ context.Context, token string) (*sdk.Identity, error) {
+	return &sdk.Identity{
+		Subject:      "user-123",
+		Identifier:   "test@example.com",
+		Verified:     true,
+		Provider:     "mock",
+		SignInMethod: "password",
+		ExpiresAt:    time.Now().Add(time.Hour),
+	}, nil
+}
+func (mockIdentityProvider) RevokeToken(_ context.Context, _ string) error { return nil }
+
 func TestAuthenticate_ValidBearer(t *testing.T) {
 	k := New(DefaultConfig())
+	k.identityProvider = mockIdentityProvider{}
 	r := gin.New()
 	r.Use(k.authenticate())
 	r.GET("/test", func(c *gin.Context) {
 		token := c.GetString("auth_token")
-		c.String(200, token)
+		userID := c.GetString("user_id")
+		c.String(200, token+"|"+userID)
 	})
 
 	w := httptest.NewRecorder()
@@ -121,8 +141,8 @@ func TestAuthenticate_ValidBearer(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Errorf("valid bearer status = %d, want 200", w.Code)
 	}
-	if w.Body.String() != "my-jwt-token" {
-		t.Errorf("token = %q, want %q", w.Body.String(), "my-jwt-token")
+	if w.Body.String() != "my-jwt-token|user-123" {
+		t.Errorf("response = %q, want %q", w.Body.String(), "my-jwt-token|user-123")
 	}
 }
 
@@ -260,10 +280,16 @@ func TestHealthz(t *testing.T) {
 		t.Errorf("healthz status = %d, want 200", w.Code)
 	}
 
-	var body map[string]string
+	var body struct {
+		Success bool              `json:"success"`
+		Result  map[string]string `json:"result"`
+	}
 	json.Unmarshal(w.Body.Bytes(), &body)
-	if body["status"] != "ok" {
-		t.Errorf("healthz status = %q, want %q", body["status"], "ok")
+	if !body.Success {
+		t.Error("healthz success should be true")
+	}
+	if body.Result["status"] != "ok" {
+		t.Errorf("healthz status = %q, want %q", body.Result["status"], "ok")
 	}
 }
 

@@ -66,10 +66,16 @@ func (k *Kernel) recovery() gin.HandlerFunc {
 	}
 }
 
-// authenticate validates the Authorization header and sets user context.
-// For now this is a stub that extracts and validates the bearer token format.
-// The full implementation (JWT verification, API key lookup, OAuth2 token)
-// will be completed when the IAM module is built.
+// authenticate validates the Authorization header by delegating to the
+// configured IdentityProvider. On success, it stores the provider-agnostic
+// Identity and convenience fields in the gin context for downstream use.
+//
+// Context values set on success:
+//   - "identity"         → *sdk.Identity (full identity object)
+//   - "user_id"          → string (IdP subject / external ID)
+//   - "auth_identifier"  → string (email, phone, or other identifier)
+//   - "auth_provider"    → string (e.g., "firebase", "okta")
+//   - "auth_token"       → string (raw bearer token)
 func (k *Kernel) authenticate() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		header := c.GetHeader("Authorization")
@@ -84,8 +90,21 @@ func (k *Kernel) authenticate() gin.HandlerFunc {
 			return
 		}
 
-		// TODO: Actual token verification will be implemented with the IAM module.
-		// For now, store the raw token so downstream middleware can use it.
+		identity, err := k.identityProvider.ValidateToken(c.Request.Context(), token)
+		if err != nil {
+			k.logger.Warn("authentication failed",
+				"error", err.Error(),
+				"request_id", c.GetString("request_id"),
+			)
+			sdk.Error(c, sdk.Unauthorized("invalid or expired token"))
+			return
+		}
+
+		// Store the full identity object and convenience shortcuts.
+		c.Set("identity", identity)
+		c.Set("user_id", identity.Subject)
+		c.Set("auth_identifier", identity.Identifier)
+		c.Set("auth_provider", identity.Provider)
 		c.Set("auth_token", token)
 		c.Next()
 	}
