@@ -13,8 +13,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/spf13/cobra"
 
-	iamadmin "go.edgescale.dev/kernel/modules/admin/iam"
-	"go.edgescale.dev/kernel/modules/consumer/iam"
+	"go.edgescale.dev/kernel/modules/iam"
 	"go.edgescale.dev/kernel/sdk"
 	"gorm.io/gorm"
 )
@@ -85,7 +84,7 @@ func New(cfg Config) *Kernel {
 
 // NewWithIAM creates a new IAM enabled Kernel instance with the given configuration.
 func NewWithIAM(cfg Config) *Kernel {
-	logger := slog.Default().With("component", "kernel-with-iam")
+	logger := slog.Default().With("component", "kernel")
 	k := &Kernel{
 		cfg:       cfg,
 		logger:    logger,
@@ -94,21 +93,6 @@ func NewWithIAM(cfg Config) *Kernel {
 		readers:   sdk.NewReaderRegistry(),
 	}
 	k.MustRegister(iam.New())
-
-	return k
-}
-
-// NewWithAdmin creates a new Kernel Admin instance with the given configuration.
-func NewWithAdmin(cfg Config) *Kernel {
-	logger := slog.Default().With("component", "kernel-admin")
-	k := &Kernel{
-		cfg:       cfg,
-		logger:    logger,
-		manifests: make(map[string]sdk.Manifest),
-		hooks:     sdk.NewHookRegistry(),
-		readers:   sdk.NewReaderRegistry(),
-	}
-	k.MustRegister(iamadmin.New())
 
 	return k
 }
@@ -266,6 +250,20 @@ func (k *Kernel) Manifests() map[string]sdk.Manifest {
 	result := make(map[string]sdk.Manifest, len(k.manifests))
 	maps.Copy(result, k.manifests)
 	return result
+}
+
+// ValidPermissionKey returns true if the given key is declared
+// by any registered module's manifest. Use this to validate
+// permission keys at write-time (e.g., when assigning permissions to roles).
+func (k *Kernel) ValidPermissionKey(key string) bool {
+	for _, m := range k.manifests {
+		for _, p := range m.Permissions {
+			if p.Key == key {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Execute builds a Cobra command tree and runs it.

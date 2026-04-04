@@ -94,3 +94,45 @@ type OrgInvitation struct {
 }
 
 func (OrgInvitation) TableName() string { return "module_iam.org_invitations" }
+
+// ---- RBAC -----------------------------------------------------------------
+
+// Role represents an org-scoped role that aggregates permissions.
+// System roles (IsSystem=true) are seeded by the kernel and cannot be deleted.
+type Role struct {
+	ID          uuid.UUID      `json:"id"          gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	OrgID       uuid.UUID      `json:"org_id"      gorm:"type:uuid;not null;index"`
+	Name        string         `json:"name"        gorm:"not null"`
+	Description string         `json:"description" gorm:"not null;default:''"`
+	IsSystem    bool           `json:"is_system"   gorm:"not null;default:false"`
+	CreatedAt   time.Time      `json:"created_at"  gorm:"autoCreateTime"`
+	UpdatedAt   time.Time      `json:"updated_at"  gorm:"autoUpdateTime"`
+	DeletedAt   gorm.DeletedAt `json:"deleted_at,omitempty" gorm:"index"`
+
+	// Eager-loaded associations.
+	Permissions []RolePermission `json:"permissions,omitempty" gorm:"foreignKey:RoleID"`
+}
+
+func (Role) TableName() string { return "module_iam.roles" }
+
+// RolePermission maps a role to a permission key declared in a module manifest.
+// The PermissionKey is a string like "iam.users.read" — not a FK to a DB table.
+type RolePermission struct {
+	ID            uuid.UUID `json:"id"             gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	RoleID        uuid.UUID `json:"role_id"        gorm:"type:uuid;not null;index"`
+	PermissionKey string    `json:"permission_key" gorm:"not null"`
+	CreatedAt     time.Time `json:"created_at"     gorm:"autoCreateTime"`
+}
+
+func (RolePermission) TableName() string { return "module_iam.role_permissions" }
+
+// UserRole assigns a role to a user within an org. A user can have multiple roles.
+type UserRole struct {
+	ID        uuid.UUID `json:"id"         gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	OrgID     uuid.UUID `json:"org_id"     gorm:"type:uuid;not null;index"`
+	UserID    uuid.UUID `json:"user_id"    gorm:"type:uuid;not null"`
+	RoleID    uuid.UUID `json:"role_id"    gorm:"type:uuid;not null"`
+	CreatedAt time.Time `json:"created_at" gorm:"autoCreateTime"`
+}
+
+func (UserRole) TableName() string { return "module_iam.user_roles" }

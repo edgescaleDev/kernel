@@ -40,6 +40,8 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Key: "iam.members.manage", Label: "Manage org members"},
 			{Key: "iam.invitations.read", Label: "View invitations"},
 			{Key: "iam.invitations.manage", Label: "Manage invitations"},
+			{Key: "iam.roles.read", Label: "View roles and permissions"},
+			{Key: "iam.roles.manage", Label: "Manage roles and permissions"},
 		},
 		PublicEvents: []sdk.EventDef{
 			{Subject: "iam.user.created", Description: "Fired when a new user is created"},
@@ -93,6 +95,7 @@ func (m *Module) RegisterRoutes(router *sdk.Router) {
 	registerOrgRoutes(m, router)
 	registerMemberRoutes(m, router)
 	registerInvitationRoutes(m, router)
+	registerRoleRoutes(m, router)
 }
 
 // RegisterEvents subscribes to relevant event bus subjects.

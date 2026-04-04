@@ -64,9 +64,8 @@ func TestRegister(t *testing.T) {
 		t.Fatalf("Register billing: %v", err)
 	}
 
-	// 2 auto-registered (iam, iam-admin) + 2 stubs = 4
-	if len(k.modules) != 4 {
-		t.Errorf("Register count = %d, want 4", len(k.modules))
+	if len(k.modules) != 2 {
+		t.Errorf("Register count = %d, want 2", len(k.modules))
 	}
 	if _, ok := k.manifests["orders"]; !ok {
 		t.Error("Register should store manifest for 'orders'")
@@ -107,9 +106,8 @@ func TestModules_BeforeBoot(t *testing.T) {
 	k.MustRegister(newStub("b"))
 
 	modules := k.Modules()
-	// 2 auto-registered (iam, iam-admin) + 2 stubs = 4
-	if len(modules) != 4 {
-		t.Errorf("Modules() before Boot = %d, want 4", len(modules))
+	if len(modules) != 2 {
+		t.Errorf("Modules() before Boot = %d, want 2", len(modules))
 	}
 }
 
@@ -212,4 +210,33 @@ type shutdownRecorder struct {
 func (s *shutdownRecorder) Shutdown() error {
 	*s.order = append(*s.order, s.manifest.ID)
 	return nil
+}
+
+func TestValidPermissionKey(t *testing.T) {
+	k := New(DefaultConfig())
+
+	// Register a module with permissions.
+	alpha := newStub("alpha")
+	alpha.manifest.Permissions = []sdk.Permission{
+		{Key: "alpha.read", Label: "Read alpha"},
+		{Key: "alpha.write", Label: "Write alpha"},
+	}
+	k.MustRegister(alpha)
+
+	tests := []struct {
+		key  string
+		want bool
+	}{
+		{"alpha.read", true},
+		{"alpha.write", true},
+		{"alpha.delete", false},
+		{"beta.read", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		if got := k.ValidPermissionKey(tt.key); got != tt.want {
+			t.Errorf("ValidPermissionKey(%q) = %v, want %v", tt.key, got, tt.want)
+		}
+	}
 }

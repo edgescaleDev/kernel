@@ -148,19 +148,18 @@ func TestIsModuleActive_UnregisteredModule(t *testing.T) {
 
 func TestIsModuleActive_CoreModule(t *testing.T) {
 	k := New(DefaultConfig())
+	k.MustRegister(newCoreStub("auth"))
 
-	// iam is auto-registered as a core module.
-	if !k.IsModuleActive("iam", "any-org-id") {
+	if !k.IsModuleActive("auth", "any-org-id") {
 		t.Error("core module should always be active")
 	}
 }
 
 func TestCoreModuleCount(t *testing.T) {
 	k := New(DefaultConfig())
+	k.MustRegister(newCoreStub("auth"))
 	k.MustRegister(newStub("billing"))
 
-	// iam is auto-registered as TypeCore. iam-admin is TypeAdmin. billing is TypeFeature.
-	// Only iam is TypeCore → count = 1.
 	if k.coreModuleCount() != 1 {
 		t.Errorf("coreModuleCount() = %d, want 1", k.coreModuleCount())
 	}
@@ -172,5 +171,18 @@ func TestStatusString(t *testing.T) {
 	}
 	if statusString(false) != "degraded" {
 		t.Errorf("statusString(false) = %q, want %q", statusString(false), "degraded")
+	}
+}
+
+// newCoreStub creates a stubModule with TypeCore for testing.
+func newCoreStub(id string) *stubModule {
+	return &stubModule{
+		manifest: sdk.Manifest{
+			ID:      id,
+			Name:    id,
+			Version: "1.0.0",
+			Type:    sdk.TypeCore,
+			Schema:  "public",
+		},
 	}
 }

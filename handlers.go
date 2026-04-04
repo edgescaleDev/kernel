@@ -59,6 +59,31 @@ func toModuleInfo(m sdk.Manifest) moduleInfo {
 	}
 }
 
+// permissionInfo is the JSON shape returned by the /v1/permissions endpoint.
+type permissionInfo struct {
+	Module string `json:"module"`
+	Key    string `json:"key"`
+	Label  string `json:"label"`
+}
+
+// handleListPermissions returns all permissions declared by all registered modules.
+// GET /v1/permissions
+func (k *Kernel) handleListPermissions(c *gin.Context) {
+	var perms []permissionInfo
+	for _, m := range k.Modules() {
+		manifest := m.Manifest()
+		for _, p := range manifest.Permissions {
+			perms = append(perms, permissionInfo{
+				Module: manifest.ID,
+				Key:    p.Key,
+				Label:  p.Label,
+			})
+		}
+	}
+
+	sdk.OK(c, perms)
+}
+
 // handleListModules returns metadata for all registered modules.
 // GET /v1/modules
 func (k *Kernel) handleListModules(c *gin.Context) {

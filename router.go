@@ -34,6 +34,7 @@ func (k *Kernel) setupRouter() {
 	v1.GET("/me", k.handleMe)
 	v1.GET("/modules", k.handleListModules)
 	v1.GET("/modules/active", k.handleActiveModules)
+	v1.GET("/permissions", k.handleListPermissions)
 
 	// Mount each module's routes under /v1/{module_id}/ and /v2/{module_id}/.
 	for _, m := range k.Modules() {
