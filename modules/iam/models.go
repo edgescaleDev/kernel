@@ -29,7 +29,7 @@ type User struct {
 	DeletedAt  gorm.DeletedAt  `json:"deleted_at,omitempty" gorm:"index"`
 }
 
-func (User) TableName() string { return "public.users" }
+func (User) TableName() string { return "module_iam.users" }
 
 // ErasePersonalData anonymises PII for GDPR compliance.
 func (u *User) ErasePersonalData() error {
@@ -57,7 +57,7 @@ type Organization struct {
 	DeletedAt gorm.DeletedAt  `json:"deleted_at" gorm:"index"`
 }
 
-func (Organization) TableName() string { return "public.organizations" }
+func (Organization) TableName() string { return "module_iam.organizations" }
 
 // ---- Membership -----------------------------------------------------------
 
@@ -73,7 +73,7 @@ type OrgMember struct {
 	DeletedAt gorm.DeletedAt `json:"deleted_at,omitempty" gorm:"index"`
 }
 
-func (OrgMember) TableName() string { return "public.org_members" }
+func (OrgMember) TableName() string { return "module_iam.org_members" }
 
 // OrgInvitation tracks pending invitations to an organization.
 // Channel determines the delivery method (email, sms, whatsapp).
@@ -93,4 +93,4 @@ type OrgInvitation struct {
 	UpdatedAt  time.Time  `json:"updated_at"  gorm:"autoUpdateTime"`
 }
 
-func (OrgInvitation) TableName() string { return "public.org_invitations" }
+func (OrgInvitation) TableName() string { return "module_iam.org_invitations" }

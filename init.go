@@ -60,6 +60,7 @@ func (k *Kernel) buildContext(manifest sdk.Manifest) sdk.Context {
 		Outbox:    &outboxWriter{db: k.db, moduleID: moduleID},
 		ServiceID: moduleID,
 	}
+	ctx.SetReaders(k.readers)
 
 	// Scoped Redis: all keys prefixed with "module:{id}:".
 	if k.redis != nil {

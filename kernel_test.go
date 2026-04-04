@@ -64,8 +64,9 @@ func TestRegister(t *testing.T) {
 		t.Fatalf("Register billing: %v", err)
 	}
 
-	if len(k.modules) != 2 {
-		t.Errorf("Register count = %d, want 2", len(k.modules))
+	// 2 auto-registered (iam, iam-admin) + 2 stubs = 4
+	if len(k.modules) != 4 {
+		t.Errorf("Register count = %d, want 4", len(k.modules))
 	}
 	if _, ok := k.manifests["orders"]; !ok {
 		t.Error("Register should store manifest for 'orders'")
@@ -106,8 +107,9 @@ func TestModules_BeforeBoot(t *testing.T) {
 	k.MustRegister(newStub("b"))
 
 	modules := k.Modules()
-	if len(modules) != 2 {
-		t.Errorf("Modules() before Boot = %d, want 2", len(modules))
+	// 2 auto-registered (iam, iam-admin) + 2 stubs = 4
+	if len(modules) != 4 {
+		t.Errorf("Modules() before Boot = %d, want 4", len(modules))
 	}
 }
 
@@ -157,8 +159,8 @@ func TestShutdown_ServicesInReverseOrder(t *testing.T) {
 		}
 	}
 
-	k.MustRegister(makeRecorder("iam"))
-	k.MustRegister(makeRecorder("billing", "iam"))
+	k.MustRegister(makeRecorder("core"))
+	k.MustRegister(makeRecorder("billing", "core"))
 	k.MustRegister(makeRecorder("invoicing", "billing"))
 
 	// Manually compute dep order (Boot requires infra).
@@ -173,11 +175,11 @@ func TestShutdown_ServicesInReverseOrder(t *testing.T) {
 		t.Fatalf("Shutdown: %v", err)
 	}
 
-	// Expect reverse dep order: invoicing, billing, iam.
+	// Expect reverse dep order: invoicing, billing, core (iam/iam-admin have no recorder).
 	if len(shutdownOrder) != 3 {
 		t.Fatalf("shutdown count = %d, want 3", len(shutdownOrder))
 	}
-	want := []string{"invoicing", "billing", "iam"}
+	want := []string{"invoicing", "billing", "core"}
 	for i, id := range want {
 		if shutdownOrder[i] != id {
 			t.Errorf("shutdown[%d] = %q, want %q", i, shutdownOrder[i], id)

@@ -107,13 +107,13 @@ func TestManifests(t *testing.T) {
 	k.MustRegister(newStub("billing"))
 
 	manifests := k.Manifests()
-	if len(manifests) != 2 {
-		t.Errorf("Manifests() returned %d entries, want 2", len(manifests))
+	// 2 auto-registered (iam, iam-admin) + 2 stubs = 4
+	if len(manifests) != 4 {
+		t.Errorf("Manifests() returned %d entries, want 4", len(manifests))
 	}
-	if _, ok := manifests["orders"]; !ok {
-		t.Error("missing 'orders' in Manifests()")
-	}
-	if _, ok := manifests["billing"]; !ok {
-		t.Error("missing 'billing' in Manifests()")
+	for _, id := range []string{"iam", "iam-admin", "orders", "billing"} {
+		if _, ok := manifests[id]; !ok {
+			t.Errorf("missing %q in Manifests()", id)
+		}
 	}
 }

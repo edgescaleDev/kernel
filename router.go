@@ -40,20 +40,36 @@ func (k *Kernel) setupRouter() {
 		manifest := m.Manifest()
 		moduleID := manifest.ID
 
-		authenticated := v1.Group("/" + moduleID)
-		authenticated.Use(k.resolveOrg(), k.moduleActivation(moduleID))
+		var router *sdk.Router
 
-		public := k.engine.Group("/v1/" + moduleID)
+		if manifest.Type == sdk.TypeAdmin {
+			// Admin modules are mounted on /admin/v1/{module_id}/.
+			// No resolveOrg or moduleActivation — they operate cross-org.
+			adminAuth := k.engine.Group("/admin/v1/" + moduleID)
+			adminAuth.Use(k.authenticate())
 
-		v2Auth := k.engine.Group("/v2/" + moduleID)
-		v2Auth.Use(k.authenticate(), k.resolveOrg(), k.moduleActivation(moduleID))
+			adminPublic := k.engine.Group("/admin/v1/" + moduleID + "/public")
 
-		router := sdk.NewRouter(authenticated, v2Auth, public, k.checkPermission, moduleID)
+			router = sdk.NewRouter(adminAuth, nil, adminPublic, k.checkPermission, moduleID)
+		} else {
+			// Standard modules: org-scoped on /v1/ and /v2/.
+			authenticated := v1.Group("/" + moduleID)
+			authenticated.Use(k.resolveOrg(), k.moduleActivation(moduleID))
+
+			public := k.engine.Group("/v1/" + moduleID)
+
+			v2Auth := k.engine.Group("/v2/" + moduleID)
+			v2Auth.Use(k.authenticate(), k.resolveOrg(), k.moduleActivation(moduleID))
+
+			router = sdk.NewRouter(authenticated, v2Auth, public, k.checkPermission, moduleID)
+		}
+
 		m.RegisterRoutes(router)
 
 		routes := router.Routes()
 		k.logger.Info("mounted routes",
 			"module", moduleID,
+			"type", manifest.Type.String(),
 			"count", len(routes),
 		)
 	}

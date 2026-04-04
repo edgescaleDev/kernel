@@ -66,3 +66,9 @@ func Reader[T any](ctx *Context, serviceID string) (T, error) {
 func (ctx *Context) RegisterReader(reader any) {
 	ctx.readers.Register(ctx.ServiceID, reader)
 }
+
+// SetReaders injects the shared reader registry into this context.
+// Called by the kernel during context construction — modules should not call this.
+func (ctx *Context) SetReaders(r *ReaderRegistry) {
+	ctx.readers = r
+}

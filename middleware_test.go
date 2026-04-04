@@ -318,7 +318,8 @@ func TestListModules(t *testing.T) {
 	if !body.Success {
 		t.Error("modules success should be true")
 	}
-	if len(body.Result) != 2 {
-		t.Errorf("modules count = %d, want 2", len(body.Result))
+	// 2 auto-registered (iam, iam-admin) + 2 stubs = 4
+	if len(body.Result) != 4 {
+		t.Errorf("modules count = %d, want 4", len(body.Result))
 	}
 }

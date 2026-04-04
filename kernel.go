@@ -12,6 +12,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	"github.com/spf13/cobra"
+
+	iamadmin "go.edgescale.dev/kernel/modules/admin/iam"
+	"go.edgescale.dev/kernel/modules/consumer/iam"
 	"go.edgescale.dev/kernel/sdk"
 	"gorm.io/gorm"
 )
@@ -77,6 +80,37 @@ func New(cfg Config) *Kernel {
 		hooks:     sdk.NewHookRegistry(),
 		readers:   sdk.NewReaderRegistry(),
 	}
+
+}
+
+// NewWithIAM creates a new IAM enabled Kernel instance with the given configuration.
+func NewWithIAM(cfg Config) *Kernel {
+	logger := slog.Default().With("component", "kernel-with-iam")
+	k := &Kernel{
+		cfg:       cfg,
+		logger:    logger,
+		manifests: make(map[string]sdk.Manifest),
+		hooks:     sdk.NewHookRegistry(),
+		readers:   sdk.NewReaderRegistry(),
+	}
+	k.MustRegister(iam.New())
+
+	return k
+}
+
+// NewWithAdmin creates a new Kernel Admin instance with the given configuration.
+func NewWithAdmin(cfg Config) *Kernel {
+	logger := slog.Default().With("component", "kernel-admin")
+	k := &Kernel{
+		cfg:       cfg,
+		logger:    logger,
+		manifests: make(map[string]sdk.Manifest),
+		hooks:     sdk.NewHookRegistry(),
+		readers:   sdk.NewReaderRegistry(),
+	}
+	k.MustRegister(iamadmin.New())
+
+	return k
 }
 
 // Register adds a compiled-in module to the kernel.

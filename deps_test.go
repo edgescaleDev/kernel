@@ -139,15 +139,15 @@ func TestReverseDepOrder_Empty(t *testing.T) {
 
 func TestDependents(t *testing.T) {
 	k := New(DefaultConfig())
-	k.MustRegister(newStub("iam"))
-	k.MustRegister(newStub("billing", "iam"))
+	k.MustRegister(newStub("core"))
+	k.MustRegister(newStub("billing", "core"))
 	k.MustRegister(newStub("invoicing", "billing"))
-	k.MustRegister(newStub("payments", "iam"))
+	k.MustRegister(newStub("payments", "core"))
 
-	deps := k.Dependents("iam")
-	// billing, invoicing, payments all transitively depend on iam.
+	deps := k.Dependents("core")
+	// billing, invoicing, payments all transitively depend on core.
 	if len(deps) != 3 {
-		t.Fatalf("Dependents(iam) = %v, want 3 entries", deps)
+		t.Fatalf("Dependents(core) = %v, want 3 entries", deps)
 	}
 	// Should contain billing, invoicing, payments (sorted).
 	want := []string{"billing", "invoicing", "payments"}
@@ -160,8 +160,8 @@ func TestDependents(t *testing.T) {
 
 func TestDependents_Leaf(t *testing.T) {
 	k := New(DefaultConfig())
-	k.MustRegister(newStub("iam"))
-	k.MustRegister(newStub("billing", "iam"))
+	k.MustRegister(newStub("core"))
+	k.MustRegister(newStub("billing", "core"))
 
 	deps := k.Dependents("billing")
 	if len(deps) != 0 {
