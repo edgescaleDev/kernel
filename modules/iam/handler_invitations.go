@@ -14,7 +14,7 @@ func registerInvitationRoutes(m *Module, router *sdk.Router) {
 	router.DELETE("/invitations/:id", "iam.invitations.manage", m.revokeInvitation)
 
 	// Public endpoint — the user accepting an invitation may not be authenticated yet.
-	router.POST("/invitations/accept", sdk.Public, m.acceptInvitation)
+	router.POST("/invitations/accept", sdk.Public, sdk.RateLimit("accept", 10, time.Minute, m.ctx.Redis.Client()), m.acceptInvitation)
 }
 
 // ---- request DTOs ----------------------------------------------------------

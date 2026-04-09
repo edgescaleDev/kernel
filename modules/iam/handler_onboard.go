@@ -1,6 +1,8 @@
 package iam
 
 import (
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"go.edgescale.dev/kernel/sdk"
 )
@@ -8,7 +10,7 @@ import (
 func registerOnboardRoutes(m *Module, router *sdk.Router) {
 	// Public endpoint because the user doesn't exist in our DB yet.
 	// But it requires a valid IdP token, which we will validate manually.
-	router.POST("/onboard", sdk.Public, m.onboardUser)
+	router.POST("/onboard", sdk.Public, sdk.RateLimit("onboard", 10, time.Minute, m.ctx.Redis.Client()), m.onboardUser)
 }
 
 type onboardUserRequest struct {
