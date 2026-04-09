@@ -137,17 +137,11 @@ func (m *Module) onboardUser(c *gin.Context) {
 		})
 		events = append(events, deferredEvent{"iam.member.added", member})
 
-		// Assign the role specified in the invitation.
-		var role Role
-		if err := tx.Where("org_id = ? AND slug = ?", inv.OrgID, inv.Role).First(&role).Error; err != nil {
-			tx.Rollback()
-			sdk.Error(c, sdk.Internal("failed to find invitation role"))
-			return
-		}
+		// Assign the role specified in the invitation (stored as role_id).
 		userRole := UserRole{
 			OrgID:  inv.OrgID,
 			UserID: user.ID,
-			RoleID: role.ID,
+			RoleID: inv.RoleID,
 		}
 		if err := tx.Create(&userRole).Error; err != nil {
 			tx.Rollback()

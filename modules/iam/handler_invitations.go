@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"go.edgescale.dev/kernel/sdk"
 )
 
@@ -20,9 +21,9 @@ func registerInvitationRoutes(m *Module, router *sdk.Router) {
 // ---- request DTOs ----------------------------------------------------------
 
 type createInvitationRequest struct {
-	Channel   string `json:"channel"   binding:"required,oneof=email sms whatsapp"`
-	Recipient string `json:"recipient" binding:"required,max=320"`
-	Role      string `json:"role"      binding:"required,oneof=owner admin member"`
+	Channel   string    `json:"channel"   binding:"required,oneof=email sms whatsapp"`
+	Recipient string    `json:"recipient" binding:"required,max=320"`
+	RoleID    uuid.UUID `json:"role_id"   binding:"required"`
 }
 
 type acceptInvitationRequest struct {
@@ -65,6 +66,13 @@ func (m *Module) createInvitation(c *gin.Context) {
 		return
 	}
 
+	// Validate the role belongs to this org.
+	var role Role
+	if err := m.ctx.DB.Where("id = ? AND org_id = ?", req.RoleID, oid).First(&role).Error; err != nil {
+		sdk.Error(c, sdk.BadRequest("role not found in this organization"))
+		return
+	}
+
 	token, err := generateSecureToken()
 	if err != nil {
 		sdk.Error(c, sdk.Internal("failed to generate invitation token"))
@@ -75,7 +83,7 @@ func (m *Module) createInvitation(c *gin.Context) {
 		OrgID:     oid,
 		Channel:   req.Channel,
 		Recipient: req.Recipient,
-		Role:      req.Role,
+		RoleID:    role.ID,
 		InvitedBy: inviter.ID,
 		Token:     hashToken(token),
 		ExpiresAt: defaultExpiresAt(),
@@ -95,7 +103,7 @@ func (m *Module) createInvitation(c *gin.Context) {
 		updates := map[string]any{
 			"token":      inv.Token,
 			"status":     "pending",
-			"role":       inv.Role,
+			"role_id":    inv.RoleID,
 			"invited_by": inv.InvitedBy,
 			"expires_at": inv.ExpiresAt,
 		}
@@ -105,7 +113,7 @@ func (m *Module) createInvitation(c *gin.Context) {
 		}
 		inv = existing
 		inv.Status = "pending"
-		inv.Role = req.Role
+		inv.RoleID = role.ID
 	} else {
 		if err := m.ctx.DB.Create(&inv).Error; err != nil {
 			sdk.Error(c, sdk.Internal("failed to create invitation"))
@@ -125,7 +133,8 @@ func (m *Module) createInvitation(c *gin.Context) {
 		"org_id":     inv.OrgID,
 		"channel":    inv.Channel,
 		"recipient":  inv.Recipient,
-		"role":       inv.Role,
+		"role":       role.Slug,
+		"role_id":    role.ID,
 		"invited_by": inv.InvitedBy,
 		"token":      token,
 		"status":     inv.Status,
@@ -209,8 +218,14 @@ func (m *Module) acceptInvitation(c *gin.Context) {
 	})
 	m.ctx.Bus.Publish(c.Request.Context(), "iam.invitation.accepted", inv)
 
+	// Return human-readable info for client display instead of internal IDs.
+	var org Organization
+	m.ctx.DB.Select("name").Where("id = ?", inv.OrgID).First(&org)
+	var role Role
+	m.ctx.DB.Select("slug").Where("id = ?", inv.RoleID).First(&role)
+
 	sdk.OK(c, gin.H{
-		"org_id": inv.OrgID,
-		"role":   inv.Role,
+		"org_name": org.Name,
+		"role":     role.Slug,
 	})
 }

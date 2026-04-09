@@ -85,7 +85,7 @@ type OrgInvitation struct {
 	OrgID      uuid.UUID  `json:"org_id"      gorm:"type:uuid;not null;index"`
 	Channel    string     `json:"channel"     gorm:"not null;default:'email'"`
 	Recipient  string     `json:"recipient"   gorm:"not null"`
-	Role       string     `json:"role"        gorm:"not null;default:'member'"`
+	RoleID     uuid.UUID  `json:"role_id"     gorm:"type:uuid"`
 	InvitedBy  uuid.UUID  `json:"invited_by"  gorm:"type:uuid;not null"`
 	Token      string     `json:"-"           gorm:"not null"`
 	Status     string     `json:"status"      gorm:"not null;default:'pending'"`
