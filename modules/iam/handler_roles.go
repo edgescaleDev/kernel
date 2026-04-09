@@ -238,15 +238,19 @@ func (m *Module) setRolePermissions(c *gin.Context) {
 		Action: sdk.AuditUpdate, Resource: "role_permissions", ResourceID: role.ID.String(),
 	})
 
-	// Invalidate middleware cache for all users holding this role
+	// Invalidate middleware cache for all users holding this role.
 	if m.ctx.Redis.Client() != nil {
 		var users []User
 		m.ctx.DB.Joins("JOIN module_iam.user_roles ur ON ur.user_id = users.id").
 			Where("ur.role_id = ?", role.ID).
 			Find(&users)
 
-		for _, u := range users {
-			m.ctx.Redis.Del(c.Request.Context(), "middleware_user:"+u.ExternalID+":"+oid.String())
+		if len(users) > 0 {
+			keys := make([]string, len(users))
+			for i, u := range users {
+				keys[i] = "middleware_user:" + u.ExternalID + ":" + oid.String()
+			}
+			m.ctx.Redis.Del(c.Request.Context(), keys...)
 		}
 	}
 
