@@ -121,27 +121,36 @@ func (m *Module) onboardUser(c *gin.Context) {
 			UserID:   user.ID,
 			JoinedAt: time.Now(),
 		}
-		if err := tx.Create(&member).Error; err == nil {
-			m.ctx.Audit.Log(c.Request.Context(), sdk.AuditEntry{
-				Action: sdk.AuditCreate, Resource: "org_member", ResourceID: member.ID.String(),
-			})
-			m.ctx.Bus.Publish(c.Request.Context(), "iam.member.added", member)
+		if err := tx.Create(&member).Error; err != nil {
+			tx.Rollback()
+			sdk.Error(c, sdk.Internal("failed to create org membership"))
+			return
 		}
+		m.ctx.Audit.Log(c.Request.Context(), sdk.AuditEntry{
+			Action: sdk.AuditCreate, Resource: "org_member", ResourceID: member.ID.String(),
+		})
+		m.ctx.Bus.Publish(c.Request.Context(), "iam.member.added", member)
 
 		// Assign the role specified in the invitation.
 		var role Role
-		if err := tx.Where("org_id = ? AND slug = ?", inv.OrgID, inv.Role).First(&role).Error; err == nil {
-			userRole := UserRole{
-				OrgID:  inv.OrgID,
-				UserID: user.ID,
-				RoleID: role.ID,
-			}
-			if err := tx.Create(&userRole).Error; err == nil {
-				m.ctx.Audit.Log(c.Request.Context(), sdk.AuditEntry{
-					Action: sdk.AuditCreate, Resource: "user_roles", ResourceID: userRole.ID.String(),
-				})
-			}
+		if err := tx.Where("org_id = ? AND slug = ?", inv.OrgID, inv.Role).First(&role).Error; err != nil {
+			tx.Rollback()
+			sdk.Error(c, sdk.Internal("failed to find invitation role"))
+			return
 		}
+		userRole := UserRole{
+			OrgID:  inv.OrgID,
+			UserID: user.ID,
+			RoleID: role.ID,
+		}
+		if err := tx.Create(&userRole).Error; err != nil {
+			tx.Rollback()
+			sdk.Error(c, sdk.Internal("failed to assign role"))
+			return
+		}
+		m.ctx.Audit.Log(c.Request.Context(), sdk.AuditEntry{
+			Action: sdk.AuditCreate, Resource: "user_roles", ResourceID: userRole.ID.String(),
+		})
 	}
 
 	// If an org payload is provided, create a new org and assign the user as owner.
