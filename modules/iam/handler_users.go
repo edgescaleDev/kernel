@@ -361,6 +361,11 @@ func (m *Module) updateMe(c *gin.Context) {
 		}
 	}
 
+	m.ctx.Audit.Log(c.Request.Context(), sdk.AuditEntry{
+		Action: sdk.AuditUpdate, Resource: "user", ResourceID: user.ID.String(),
+	})
+	m.ctx.Bus.Publish(c.Request.Context(), "iam.user.updated", user)
+
 	// Invalidate caches
 	if m.ctx.Redis.Client() != nil {
 		m.ctx.Redis.Del(c.Request.Context(), fmt.Sprintf("user_org_membership:%s:%s", user.ID, oid))
