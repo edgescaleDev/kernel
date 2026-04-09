@@ -228,7 +228,9 @@ func (m *Module) updateUser(c *gin.Context) {
 	sdk.OK(c, user)
 }
 
-// deleteUser soft-deletes a user, verifying membership in the requesting org.
+// deleteUser removes a user from the requesting org by deleting their membership
+// and associated role assignments. The platform-level User record is preserved
+// because the user may belong to other organizations.
 func (m *Module) deleteUser(c *gin.Context) {
 	var uri resourceURI
 	if !sdk.BindURI(c, &uri) {
@@ -244,23 +246,38 @@ func (m *Module) deleteUser(c *gin.Context) {
 		return
 	}
 
-	result := m.ctx.DB.Where("id = ?", uri.ID).Delete(&User{})
-	if result.RowsAffected == 0 {
-		sdk.Error(c, sdk.NotFound("user", uri.ID))
+	// Use a transaction to atomically remove membership and associated roles.
+	tx := m.ctx.DB.Begin()
+
+	if err := tx.Delete(&member).Error; err != nil {
+		tx.Rollback()
+		sdk.Error(c, sdk.Internal("failed to remove member"))
+		return
+	}
+
+	// Clean up any roles assigned to this user within this organization.
+	if err := tx.Where("user_id = ? AND org_id = ?", uri.ID, oid).Delete(&UserRole{}).Error; err != nil {
+		tx.Rollback()
+		sdk.Error(c, sdk.Internal("failed to clean up member roles"))
+		return
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		sdk.Error(c, sdk.Internal("transaction failed"))
 		return
 	}
 
 	m.ctx.Audit.Log(c.Request.Context(), sdk.AuditEntry{
-		Action: sdk.AuditDelete, Resource: "user", ResourceID: uri.ID.String(),
+		Action: sdk.AuditDelete, Resource: "org_member", ResourceID: member.ID.String(),
 	})
-	m.ctx.Bus.Publish(c.Request.Context(), "iam.user.deleted", gin.H{"id": uri.ID, "org_id": oid})
+	m.ctx.Bus.Publish(c.Request.Context(), "iam.member.removed", gin.H{"id": member.ID, "org_id": oid, "user_id": uri.ID})
 
 	// Invalidate caches
 	if m.ctx.Redis.Client() != nil {
 		m.ctx.Redis.Del(c.Request.Context(), fmt.Sprintf("user_org_membership:%s:%s", uri.ID, oid))
 
 		var user User
-		if m.ctx.DB.Unscoped().Where("id = ?", uri.ID).First(&user).Error == nil {
+		if m.ctx.DB.Where("id = ?", uri.ID).First(&user).Error == nil {
 			m.ctx.Redis.Del(c.Request.Context(), "middleware_user:"+user.ExternalID+":"+oid.String())
 		}
 	}
