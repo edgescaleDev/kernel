@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"go.edgescale.dev/kernel/sdk"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // seedDefaultRoles creates system roles (owner, admin, member, viewer) when an org is provisioned.
@@ -60,23 +61,23 @@ func defaultSystemRoles(orgID uuid.UUID) []Role {
 }
 
 // seedSystemRoles creates system roles for an org within the given transaction.
-// Idempotent — skips roles that already exist.
+// Idempotent — uses ON CONFLICT DO NOTHING to skip existing roles.
 func seedSystemRoles(tx *gorm.DB, orgID uuid.UUID) error {
-	for _, r := range defaultSystemRoles(orgID) {
-		var existing Role
-		if err := tx.Where("org_id = ? AND slug = ?", r.OrgID, r.Slug).First(&existing).Error; err != nil {
-			if err := tx.Create(&r).Error; err != nil {
-				return fmt.Errorf("seed role %s: %w", r.Slug, err)
-			}
-			// Assign wildcard permission to the owner role so they can access everything.
-			if r.Slug == "owner" {
-				perm := RolePermission{RoleID: r.ID, PermissionKey: "*"}
-				if err := tx.Create(&perm).Error; err != nil {
-					return fmt.Errorf("seed owner permission: %w", err)
-				}
-			}
-		}
+	roles := defaultSystemRoles(orgID)
+	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&roles).Error; err != nil {
+		return fmt.Errorf("seed system roles: %w", err)
 	}
+
+	// Assign wildcard permission to the owner role.
+	var ownerRole Role
+	if err := tx.Where("org_id = ? AND slug = 'owner'", orgID).First(&ownerRole).Error; err != nil {
+		return fmt.Errorf("find owner role: %w", err)
+	}
+	ownerPerm := RolePermission{RoleID: ownerRole.ID, PermissionKey: "*"}
+	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&ownerPerm).Error; err != nil {
+		return fmt.Errorf("seed owner permission: %w", err)
+	}
+
 	return nil
 }
 

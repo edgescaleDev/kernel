@@ -2,6 +2,7 @@ package iam
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -35,10 +36,7 @@ func (m *Module) onboardUser(c *gin.Context) {
 		return
 	}
 
-	token := header
-	if len(header) > 7 && header[:7] == "Bearer " {
-		token = header[7:]
-	}
+	token := strings.TrimPrefix(header, "Bearer ")
 
 	identity, err := m.ctx.IdentityProvider.ValidateToken(c.Request.Context(), token)
 	if err != nil {

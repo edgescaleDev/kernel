@@ -21,7 +21,7 @@ func registerInvitationRoutes(m *Module, router *sdk.Router) {
 
 type createInvitationRequest struct {
 	Channel   string `json:"channel"   binding:"required,oneof=email sms whatsapp"`
-	Recipient string `json:"recipient" binding:"required"`
+	Recipient string `json:"recipient" binding:"required,max=320"`
 	Role      string `json:"role"      binding:"required,oneof=owner admin member"`
 }
 
@@ -144,6 +144,10 @@ func (m *Module) revokeInvitation(c *gin.Context) {
 	result := m.ctx.DB.Model(&OrgInvitation{}).
 		Where("id = ? AND org_id = ? AND status = 'pending'", uri.ID, oid).
 		Update("status", "revoked")
+	if result.Error != nil {
+		sdk.Error(c, sdk.Internal("failed to revoke invitation"))
+		return
+	}
 	if result.RowsAffected == 0 {
 		sdk.Error(c, sdk.NotFound("invitation", uri.ID))
 		return

@@ -316,23 +316,11 @@ func (m *Module) listUserRoles(c *gin.Context) {
 	}
 
 	oid := orgID(c)
-	var userRoles []UserRole
-	if err := m.ctx.DB.Where("user_id = ? AND org_id = ?", uri.ID, oid).
-		Find(&userRoles).Error; err != nil {
-		sdk.Error(c, sdk.BadRequest(err.Error()))
-		return
-	}
-
-	// Collect role IDs and fetch full roles with permissions.
-	roleIDs := make([]uuid.UUID, len(userRoles))
-	for i, ur := range userRoles {
-		roleIDs[i] = ur.RoleID
-	}
-
 	var roles []Role
-	if len(roleIDs) > 0 {
-		m.ctx.DB.Preload("Permissions").Where("id IN ?", roleIDs).Find(&roles)
-	}
+	m.ctx.DB.Preload("Permissions").
+		Joins("JOIN module_iam.user_roles ur ON ur.role_id = roles.id").
+		Where("ur.user_id = ? AND ur.org_id = ?", uri.ID, oid).
+		Find(&roles)
 
 	sdk.OK(c, roles)
 }

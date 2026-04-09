@@ -1,11 +1,13 @@
 package iam
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.edgescale.dev/kernel/sdk"
 )
 
@@ -95,7 +97,12 @@ func (m *Module) createUser(c *gin.Context) {
 
 	if err := tx.Create(&user).Error; err != nil {
 		tx.Rollback()
-		sdk.Error(c, sdk.Conflict("user already exists or constraint violation"))
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			sdk.Error(c, sdk.Conflict("user already exists"))
+		} else {
+			sdk.Error(c, sdk.Internal("failed to create user"))
+		}
 		return
 	}
 
