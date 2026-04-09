@@ -1,9 +1,11 @@
 package iam
 
 import (
+	"errors"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.edgescale.dev/kernel/sdk"
 )
 
@@ -57,10 +59,21 @@ func (m *Module) onboardUser(c *gin.Context) {
 		user.Provider = "platform"
 	}
 
-	// Try to create the user structure.
+	// Try to create the user. Use a savepoint so a unique violation doesn't
+	// abort the entire Postgres transaction.
+	tx.SavePoint("before_user_create")
 	if err := tx.Create(&user).Error; err != nil {
-		// If user already exists, we can still process the invitation token.
-		if err := tx.Where("external_id = ? AND provider = ?", user.ExternalID, user.Provider).First(&user).Error; err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			// Unique violation — user already exists. Roll back to the savepoint
+			// (clears the aborted state) and look up the existing record.
+			tx.RollbackTo("before_user_create")
+			if err := tx.Where("external_id = ? AND provider = ?", user.ExternalID, user.Provider).First(&user).Error; err != nil {
+				tx.Rollback()
+				sdk.Error(c, sdk.Internal("failed to retrieve existing user"))
+				return
+			}
+		} else {
 			tx.Rollback()
 			sdk.Error(c, sdk.Internal("failed to onboard user"))
 			return
