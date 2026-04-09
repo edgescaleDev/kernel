@@ -11,19 +11,20 @@ func registerOrgRoutes(m *Module, router *sdk.Router) {
 	router.POST("/orgs", "iam.orgs.manage", m.createOrg)
 	router.GET("/orgs/:id", "iam.orgs.read", m.getOrg)
 	router.PATCH("/orgs/:id", "iam.orgs.manage", m.updateOrg)
+	router.DELETE("/orgs/:id", "iam.orgs.manage", m.deleteOrg)
 }
 
 // ---- request DTOs ----------------------------------------------------------
 
 type createOrgRequest struct {
-	Name string `json:"name" binding:"required"`
-	Slug string `json:"slug" binding:"required"`
+	Name sdk.TranslatableField `json:"name" binding:"required"`
+	Slug string                `json:"slug" binding:"required"`
 }
 
 type updateOrgRequest struct {
-	Name    *string `json:"name"`
-	LogoURL *string `json:"logo_url"`
-	Status  *string `json:"status"`
+	Name    *sdk.TranslatableField `json:"name"`
+	LogoURL *string                `json:"logo_url"`
+	Status  *string                `json:"status"`
 }
 
 // ---- handlers --------------------------------------------------------------
@@ -119,4 +120,33 @@ func (m *Module) updateOrg(c *gin.Context) {
 	})
 
 	sdk.OK(c, org)
+}
+
+func (m *Module) deleteOrg(c *gin.Context) {
+	var uri resourceURI
+	if !sdk.BindURI(c, &uri) {
+		return
+	}
+
+	var org Organization
+	if err := m.ctx.DB.Where("id = ?", uri.ID).First(&org).Error; err != nil {
+		sdk.Error(c, sdk.NotFound("organization", uri.ID))
+		return
+	}
+	if org.Status == "platform" {
+		sdk.Error(c, sdk.Forbidden("platform organization cannot be deleted"))
+		return
+	}
+
+	if err := m.ctx.DB.Delete(&org).Error; err != nil {
+		sdk.Error(c, sdk.Internal("failed to delete organization"))
+		return
+	}
+
+	m.ctx.Audit.Log(c.Request.Context(), sdk.AuditEntry{
+		Action: sdk.AuditDelete, Resource: "organization", ResourceID: org.ID.String(),
+	})
+	m.ctx.Bus.Publish(c.Request.Context(), "iam.org.deleted", org)
+
+	sdk.NoContent(c)
 }

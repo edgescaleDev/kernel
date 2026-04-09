@@ -20,6 +20,9 @@ type Config struct {
 	// Dev enables development mode with graceful degradation
 	// for optional infrastructure (task executor, search, etc.).
 	Dev DevConfig `mapstructure:"dev"`
+
+	// IAM configures the Identity & Access Management module.
+	IAM IAMConfig `mapstructure:"iam"`
 }
 
 // ServerConfig holds HTTP server settings.
@@ -106,6 +109,13 @@ type DevConfig struct {
 	Mode bool `mapstructure:"mode"`
 }
 
+// IAMConfig configures the built-in IAM module caching and settings.
+type IAMConfig struct {
+	// CacheTTL determines how long user representation and permission
+	// mapping is cached in Redis (default: 15m).
+	CacheTTL time.Duration `mapstructure:"cache_ttl"`
+}
+
 // DefaultConfig returns a Config with sensible defaults for local development.
 func DefaultConfig() Config {
 	return Config{
@@ -127,6 +137,9 @@ func DefaultConfig() Config {
 		Redis: RedisConfig{
 			Addr: "localhost:6379",
 			DB:   0,
+		},
+		IAM: IAMConfig{
+			CacheTTL: 15 * time.Minute,
 		},
 	}
 }

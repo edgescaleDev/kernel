@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.edgescale.dev/kernel/sdk"
 	"gorm.io/gorm"
 )
 
@@ -13,29 +14,29 @@ import (
 // User represents a platform-level identity mapped from an external IdP subject.
 // Users are not scoped to an org — org membership is tracked via OrgMember.
 type User struct {
-	ID         uuid.UUID       `json:"id"          gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
-	ExternalID string          `json:"external_id" gorm:"not null"`
-	Provider   string          `json:"provider"    gorm:"not null;default:'platform'"`
-	Email      string          `json:"email"       gorm:"not null;default:''"`
-	Phone      string          `json:"phone"       gorm:"not null;default:''"`
-	Name       string          `json:"name"        gorm:"not null;default:''"`
-	AvatarURL  string          `json:"avatar_url"  gorm:"not null;default:''"`
-	Locale     string          `json:"locale"      gorm:"not null;default:'en'"`
-	Timezone   string          `json:"timezone"    gorm:"not null;default:'UTC'"`
-	Status     string          `json:"status"      gorm:"not null;default:'active'"`
-	Metadata   json.RawMessage `json:"metadata"    gorm:"type:jsonb;not null;default:'{}'"`
-	CreatedAt  time.Time       `json:"created_at"  gorm:"autoCreateTime"`
-	UpdatedAt  time.Time       `json:"updated_at"  gorm:"autoUpdateTime"`
-	DeletedAt  gorm.DeletedAt  `json:"deleted_at,omitempty" gorm:"index"`
+	ID         uuid.UUID             `json:"id"          gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	ExternalID string                `json:"external_id" gorm:"not null"`
+	Provider   string                `json:"provider"    gorm:"not null;default:'platform'"`
+	Email      string                `json:"email"       gorm:"not null;default:''"`
+	Phone      string                `json:"phone"       gorm:"not null;default:''"`
+	Name       sdk.TranslatableField `json:"name"        gorm:"type:jsonb;not null;default:'{}'"`
+	AvatarURL  string                `json:"avatar_url"  gorm:"not null;default:''"`
+	Locale     string                `json:"locale"      gorm:"not null;default:'en'"`
+	Timezone   string                `json:"timezone"    gorm:"not null;default:'UTC'"`
+	Status     string                `json:"status"      gorm:"not null;default:'active'"`
+	Metadata   json.RawMessage       `json:"metadata"    gorm:"type:jsonb;not null;default:'{}'"`
+	CreatedAt  time.Time             `json:"created_at"  gorm:"autoCreateTime"`
+	UpdatedAt  time.Time             `json:"updated_at"  gorm:"autoUpdateTime"`
+	DeletedAt  gorm.DeletedAt        `json:"deleted_at,omitempty" gorm:"index"`
 }
 
-func (User) TableName() string { return "module_iam.users" }
+func (User) TableName() string { return "public.users" }
 
 // ErasePersonalData anonymises PII for GDPR compliance.
 func (u *User) ErasePersonalData() error {
 	u.Email = "erased@deleted.local"
 	u.Phone = ""
-	u.Name = "Deleted User"
+	u.Name = sdk.TranslatableField{"en": "Deleted User"}
 	u.AvatarURL = ""
 	u.Metadata = json.RawMessage(`{}`)
 	return nil
@@ -45,19 +46,19 @@ func (u *User) ErasePersonalData() error {
 
 // Organization represents a tenant on the platform.
 type Organization struct {
-	ID        uuid.UUID       `json:"id"         gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
-	Name      string          `json:"name"       gorm:"not null"`
-	Slug      string          `json:"slug"       gorm:"not null;uniqueIndex"`
-	ParentID  *uuid.UUID      `json:"parent_id,omitempty" gorm:"type:uuid;index"`
-	LogoURL   string          `json:"logo_url"   gorm:"not null;default:''"`
-	Status    string          `json:"status"     gorm:"not null;default:'active'"`
-	Metadata  json.RawMessage `json:"metadata"   gorm:"type:jsonb;not null;default:'{}'"`
-	CreatedAt time.Time       `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt time.Time       `json:"updated_at" gorm:"autoUpdateTime"`
-	DeletedAt gorm.DeletedAt  `json:"deleted_at" gorm:"index"`
+	ID        uuid.UUID             `json:"id"         gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	Name      sdk.TranslatableField `json:"name"       gorm:"type:jsonb;not null;default:'{}'"`
+	Slug      string                `json:"slug"       gorm:"not null;uniqueIndex"`
+	ParentID  *uuid.UUID            `json:"parent_id,omitempty" gorm:"type:uuid;index"`
+	LogoURL   string                `json:"logo_url"   gorm:"not null;default:''"`
+	Status    string                `json:"status"     gorm:"not null;default:'active'"`
+	Metadata  json.RawMessage       `json:"metadata"   gorm:"type:jsonb;not null;default:'{}'"`
+	CreatedAt time.Time             `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt time.Time             `json:"updated_at" gorm:"autoUpdateTime"`
+	DeletedAt gorm.DeletedAt        `json:"deleted_at" gorm:"index"`
 }
 
-func (Organization) TableName() string { return "module_iam.organizations" }
+func (Organization) TableName() string { return "public.organizations" }
 
 // ---- Membership -----------------------------------------------------------
 
@@ -74,7 +75,7 @@ type OrgMember struct {
 	DeletedAt gorm.DeletedAt `json:"deleted_at,omitempty" gorm:"index"`
 }
 
-func (OrgMember) TableName() string { return "module_iam.org_members" }
+func (OrgMember) TableName() string { return "public.org_members" }
 
 // OrgInvitation tracks pending invitations to an organization.
 // Channel determines the delivery method (email, sms, whatsapp).
@@ -101,14 +102,15 @@ func (OrgInvitation) TableName() string { return "module_iam.org_invitations" }
 // Role represents an org-scoped role that aggregates permissions.
 // System roles (IsSystem=true) are seeded by the kernel and cannot be deleted.
 type Role struct {
-	ID          uuid.UUID      `json:"id"          gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
-	OrgID       uuid.UUID      `json:"org_id"      gorm:"type:uuid;not null;index"`
-	Name        string         `json:"name"        gorm:"not null"`
-	Description string         `json:"description" gorm:"not null;default:''"`
-	IsSystem    bool           `json:"is_system"   gorm:"not null;default:false"`
-	CreatedAt   time.Time      `json:"created_at"  gorm:"autoCreateTime"`
-	UpdatedAt   time.Time      `json:"updated_at"  gorm:"autoUpdateTime"`
-	DeletedAt   gorm.DeletedAt `json:"deleted_at,omitempty" gorm:"index"`
+	ID          uuid.UUID             `json:"id"          gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	OrgID       uuid.UUID             `json:"org_id"      gorm:"type:uuid;not null;index"`
+	Name        sdk.TranslatableField `json:"name"        gorm:"type:jsonb;not null;default:'{}'"`
+	Slug        string                `json:"slug"        gorm:"not null;uniqueIndex:idx_roles_org_slug"`
+	Description sdk.TranslatableField `json:"description" gorm:"type:jsonb;not null;default:'{}'"`
+	IsSystem    bool                  `json:"is_system"   gorm:"not null;default:false"`
+	CreatedAt   time.Time             `json:"created_at"  gorm:"autoCreateTime"`
+	UpdatedAt   time.Time             `json:"updated_at"  gorm:"autoUpdateTime"`
+	DeletedAt   gorm.DeletedAt        `json:"deleted_at,omitempty" gorm:"index"`
 
 	// Eager-loaded associations.
 	Permissions []RolePermission `json:"permissions,omitempty" gorm:"foreignKey:RoleID"`

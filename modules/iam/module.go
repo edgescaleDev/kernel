@@ -8,6 +8,7 @@ package iam
 import (
 	"embed"
 	"io/fs"
+	"time"
 
 	"go.edgescale.dev/kernel/sdk"
 )
@@ -17,17 +18,18 @@ var migrations embed.FS
 
 // Module implements sdk.Module for identity & access management.
 type Module struct {
-	ctx sdk.Context
+	ctx      sdk.Context
+	cacheTTL time.Duration
 }
 
-func New() *Module { return &Module{} }
+func New(cacheTTL time.Duration) *Module { return &Module{cacheTTL: cacheTTL} }
 
 // Manifest returns immutable metadata for the IAM module.
 func (m *Module) Manifest() sdk.Manifest {
 	return sdk.Manifest{
 		ID:          "iam",
 		Name:        "Identity & Access Management",
-		Version:     "0.1.0",
+		Version:     "1.0.0",
 		Type:        sdk.TypeCore,
 		Schema:      "public",
 		Description: "Users, organizations, membership, and authorization.",
@@ -51,6 +53,12 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Subject: "iam.member.removed", Description: "Fired when a user is removed from an organization"},
 			{Subject: "iam.invitation.created", Description: "Fired when an invitation is created"},
 			{Subject: "iam.invitation.accepted", Description: "Fired when an invitation is accepted"},
+			{Subject: "iam.role.created", Description: "Fired when a role is created"},
+			{Subject: "iam.role.updated", Description: "Fired when a role is updated"},
+			{Subject: "iam.role.deleted", Description: "Fired when a role is deleted"},
+			{Subject: "iam.role.permissions.updated", Description: "Fired when a role's permissions are updated"},
+			{Subject: "iam.user_roles.updated", Description: "Fired when a user's roles are updated"},
+			{Subject: "iam.org.deleted", Description: "Fired when an organization is soft-deleted"},
 		},
 		Config: []sdk.ConfigFieldDef{
 			{
@@ -96,13 +104,16 @@ func (m *Module) RegisterRoutes(router *sdk.Router) {
 	registerMemberRoutes(m, router)
 	registerInvitationRoutes(m, router)
 	registerRoleRoutes(m, router)
+	registerOnboardRoutes(m, router)
 }
 
 // RegisterEvents subscribes to relevant event bus subjects.
 func (m *Module) RegisterEvents(bus sdk.EventBus) {}
 
 // RegisterHooks registers sync interceptors for IAM lifecycle events.
-func (m *Module) RegisterHooks(hooks *sdk.HookRegistry) {}
+func (m *Module) RegisterHooks(hooks *sdk.HookRegistry) {
+	hooks.After("after.kernel.org.provisioned", m.seedDefaultRoles)
+}
 
 // RegisterWorkflows registers Temporal workflows.
 func (m *Module) RegisterWorkflows(reg sdk.WorkflowRegistry) {}

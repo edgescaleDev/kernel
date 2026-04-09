@@ -1,6 +1,9 @@
 package iam
 
 import (
+	"encoding/json"
+	"fmt"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"go.edgescale.dev/kernel/sdk"
@@ -22,28 +25,28 @@ func registerUserRoutes(m *Module, router *sdk.Router) {
 // ---- request / response DTOs -----------------------------------------------
 
 type createUserRequest struct {
-	Email      string `json:"email"`
-	Phone      string `json:"phone"`
-	Name       string `json:"name"        binding:"required"`
-	ExternalID string `json:"external_id" binding:"required"`
-	Provider   string `json:"provider"`
+	Email      string                `json:"email"`
+	Phone      string                `json:"phone"`
+	Name       sdk.TranslatableField `json:"name"        binding:"required"`
+	ExternalID string                `json:"external_id" binding:"required"`
+	Provider   string                `json:"provider"`
 }
 
 type updateUserRequest struct {
-	Name      *string `json:"name"`
-	Email     *string `json:"email"`
-	Phone     *string `json:"phone"`
-	AvatarURL *string `json:"avatar_url"`
-	Locale    *string `json:"locale"`
-	Timezone  *string `json:"timezone"`
-	Status    *string `json:"status"`
+	Name      *sdk.TranslatableField `json:"name"`
+	Email     *string                `json:"email"`
+	Phone     *string                `json:"phone"`
+	AvatarURL *string                `json:"avatar_url"`
+	Locale    *string                `json:"locale"`
+	Timezone  *string                `json:"timezone"`
+	Status    *string                `json:"status"`
 }
 
 type updateMeRequest struct {
-	Name      *string `json:"name"`
-	AvatarURL *string `json:"avatar_url"`
-	Locale    *string `json:"locale"`
-	Timezone  *string `json:"timezone"`
+	Name      *sdk.TranslatableField `json:"name"`
+	AvatarURL *string                `json:"avatar_url"`
+	Locale    *string                `json:"locale"`
+	Timezone  *string                `json:"timezone"`
 }
 
 type resourceURI struct {
@@ -59,7 +62,7 @@ func (m *Module) listUsers(c *gin.Context) {
 	page := sdk.ParsePageRequest(c)
 
 	result, err := sdk.Paginate[User](
-		m.ctx.DB.Joins("JOIN module_iam.org_members ON module_iam.org_members.user_id = module_iam.users.id AND module_iam.org_members.org_id = ? AND module_iam.org_members.deleted_at IS NULL", oid),
+		m.ctx.DB.Joins("JOIN org_members ON org_members.user_id = users.id AND org_members.org_id = ? AND org_members.deleted_at IS NULL", oid),
 		page,
 	)
 	if err != nil {
@@ -128,14 +131,35 @@ func (m *Module) getUser(c *gin.Context) {
 	}
 
 	oid := orgID(c)
+	cacheKey := fmt.Sprintf("user_org_membership:%s:%s", uri.ID, oid)
+
+	// Attempt to retrieve from cache
+	if m.ctx.Redis.Client() != nil {
+		if cached, err := m.ctx.Redis.Get(c.Request.Context(), cacheKey).Bytes(); err == nil {
+			var user User
+			if json.Unmarshal(cached, &user) == nil {
+				sdk.OK(c, user)
+				return
+			}
+		}
+	}
+
 	var user User
 	if err := m.ctx.DB.
-		Joins("JOIN module_iam.org_members ON module_iam.org_members.user_id = module_iam.users.id AND module_iam.org_members.org_id = ? AND module_iam.org_members.deleted_at IS NULL", oid).
-		Where("module_iam.users.id = ?", uri.ID).
+		Joins("JOIN org_members ON org_members.user_id = users.id AND org_members.org_id = ? AND org_members.deleted_at IS NULL", oid).
+		Where("users.id = ?", uri.ID).
 		First(&user).Error; err != nil {
 		sdk.Error(c, sdk.NotFound("user", uri.ID))
 		return
 	}
+
+	// Store in cache
+	if m.ctx.Redis.Client() != nil && m.cacheTTL > 0 {
+		if data, err := json.Marshal(&user); err == nil {
+			m.ctx.Redis.Set(c.Request.Context(), cacheKey, data, m.cacheTTL)
+		}
+	}
+
 	sdk.OK(c, user)
 }
 
@@ -153,8 +177,8 @@ func (m *Module) updateUser(c *gin.Context) {
 	oid := orgID(c)
 	var user User
 	if err := m.ctx.DB.
-		Joins("JOIN module_iam.org_members ON module_iam.org_members.user_id = module_iam.users.id AND module_iam.org_members.org_id = ? AND module_iam.org_members.deleted_at IS NULL", oid).
-		Where("module_iam.users.id = ?", uri.ID).
+		Joins("JOIN org_members ON org_members.user_id = users.id AND org_members.org_id = ? AND org_members.deleted_at IS NULL", oid).
+		Where("users.id = ?", uri.ID).
 		First(&user).Error; err != nil {
 		sdk.Error(c, sdk.NotFound("user", uri.ID))
 		return
@@ -195,6 +219,12 @@ func (m *Module) updateUser(c *gin.Context) {
 	})
 	m.ctx.Bus.Publish(c.Request.Context(), "iam.user.updated", user)
 
+	// Invalidate caches
+	if m.ctx.Redis.Client() != nil {
+		m.ctx.Redis.Del(c.Request.Context(), fmt.Sprintf("user_org_membership:%s:%s", uri.ID, oid))
+		m.ctx.Redis.Del(c.Request.Context(), "middleware_user:"+user.ExternalID+":"+oid.String())
+	}
+
 	sdk.OK(c, user)
 }
 
@@ -224,6 +254,16 @@ func (m *Module) deleteUser(c *gin.Context) {
 		Action: sdk.AuditDelete, Resource: "user", ResourceID: uri.ID.String(),
 	})
 	m.ctx.Bus.Publish(c.Request.Context(), "iam.user.deleted", gin.H{"id": uri.ID, "org_id": oid})
+
+	// Invalidate caches
+	if m.ctx.Redis.Client() != nil {
+		m.ctx.Redis.Del(c.Request.Context(), fmt.Sprintf("user_org_membership:%s:%s", uri.ID, oid))
+
+		var user User
+		if m.ctx.DB.Unscoped().Where("id = ?", uri.ID).First(&user).Error == nil {
+			m.ctx.Redis.Del(c.Request.Context(), "middleware_user:"+user.ExternalID+":"+oid.String())
+		}
+	}
 
 	sdk.NoContent(c)
 }
@@ -303,5 +343,12 @@ func (m *Module) updateMe(c *gin.Context) {
 			return
 		}
 	}
+
+	// Invalidate caches
+	if m.ctx.Redis.Client() != nil {
+		m.ctx.Redis.Del(c.Request.Context(), fmt.Sprintf("user_org_membership:%s:%s", user.ID, oid))
+		m.ctx.Redis.Del(c.Request.Context(), "middleware_user:"+user.ExternalID+":"+oid.String())
+	}
+
 	sdk.OK(c, user)
 }

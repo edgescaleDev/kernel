@@ -1,6 +1,8 @@
 package iam
 
 import (
+	"fmt"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"go.edgescale.dev/kernel/sdk"
@@ -60,6 +62,10 @@ func (m *Module) addMember(c *gin.Context) {
 	})
 	m.ctx.Bus.Publish(c.Request.Context(), "iam.member.added", member)
 
+	if m.ctx.Redis.Client() != nil {
+		m.ctx.Redis.Del(c.Request.Context(), fmt.Sprintf("user_org_membership:%s:%s", req.UserID, oid))
+	}
+
 	sdk.Created(c, member)
 }
 
@@ -70,16 +76,49 @@ func (m *Module) removeMember(c *gin.Context) {
 	}
 
 	oid := orgID(c)
-	result := m.ctx.DB.Where("id = ? AND org_id = ?", uri.ID, oid).Delete(&OrgMember{})
-	if result.RowsAffected == 0 {
+
+	// Fetch the member first to get the associated UserID for cache invalidation.
+	var member OrgMember
+	if err := m.ctx.DB.Where("id = ? AND org_id = ?", uri.ID, oid).First(&member).Error; err != nil {
 		sdk.Error(c, sdk.NotFound("member", uri.ID))
+		return
+	}
+
+	// Use a transaction to atomically remove membership and associated roles.
+	tx := m.ctx.DB.Begin()
+
+	if err := tx.Delete(&member).Error; err != nil {
+		tx.Rollback()
+		sdk.Error(c, sdk.Internal("failed to remove member"))
+		return
+	}
+
+	// Clean up any roles assigned to this user within this organization
+	// to prevent them from silently regaining administrative permissions if re-invited.
+	if err := tx.Where("user_id = ? AND org_id = ?", member.UserID, oid).Delete(&UserRole{}).Error; err != nil {
+		tx.Rollback()
+		sdk.Error(c, sdk.Internal("failed to clean up member roles"))
+		return
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		sdk.Error(c, sdk.Internal("transaction failed"))
 		return
 	}
 
 	m.ctx.Audit.Log(c.Request.Context(), sdk.AuditEntry{
 		Action: sdk.AuditDelete, Resource: "org_member", ResourceID: uri.ID.String(),
 	})
-	m.ctx.Bus.Publish(c.Request.Context(), "iam.member.removed", gin.H{"id": uri.ID, "org_id": oid})
+	m.ctx.Bus.Publish(c.Request.Context(), "iam.member.removed", gin.H{"id": uri.ID, "org_id": oid, "user_id": member.UserID})
+
+	if m.ctx.Redis.Client() != nil {
+		m.ctx.Redis.Del(c.Request.Context(), fmt.Sprintf("user_org_membership:%s:%s", member.UserID, oid))
+
+		var user User
+		if m.ctx.DB.Unscoped().Where("id = ?", member.UserID).First(&user).Error == nil {
+			m.ctx.Redis.Del(c.Request.Context(), "middleware_user:"+user.ExternalID+":"+oid.String())
+		}
+	}
 
 	sdk.NoContent(c)
 }

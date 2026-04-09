@@ -454,10 +454,10 @@ func (k *Kernel) platformGrantCommand() *cobra.Command {
 			// Find the role in the platform org.
 			var roleID uuid.UUID
 			if err := k.db.Raw(
-				"SELECT id FROM module_iam.roles WHERE org_id = ? AND name = ? AND deleted_at IS NULL",
+				"SELECT id FROM module_iam.roles WHERE org_id = ? AND slug = ? AND deleted_at IS NULL",
 				k.platformOrgID, roleName,
 			).Scan(&roleID).Error; err != nil || roleID == uuid.Nil {
-				return fmt.Errorf("platform role %q not found", roleName)
+				return fmt.Errorf("platform role slug %q not found", roleName)
 			}
 
 			// Ensure user is a member of the platform org.
@@ -482,7 +482,7 @@ func (k *Kernel) platformGrantCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&roleName, "role", "platform_admin", "platform role name")
+	cmd.Flags().StringVar(&roleName, "role", "platform_admin", "platform role slug")
 	return cmd
 }
 
@@ -555,14 +555,14 @@ func (k *Kernel) platformListCommand() *cobra.Command {
 			k.db.Raw(`
 				SELECT
 					u.id AS user_id,
-					u.name,
+					u.name->>'en' AS name,
 					u.email,
-					r.name AS role_name
+					r.name->>'en' AS role_name
 				FROM module_iam.user_roles ur
-				JOIN module_iam.users u ON u.id = ur.user_id
+				JOIN users u ON u.id = ur.user_id
 				JOIN module_iam.roles r ON r.id = ur.role_id
 				WHERE ur.org_id = ?
-				ORDER BY u.name, r.name
+				ORDER BY u.name->>'en', r.name->>'en'
 			`, k.platformOrgID).Scan(&admins)
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)

@@ -45,6 +45,9 @@ type Context struct {
 	// Hooks provides sync hook point registration and firing.
 	Hooks *HookRegistry
 
+	// IdentityProvider validates and parses bearer tokens.
+	IdentityProvider IdentityProvider
+
 	// Outbox provides durable event publishing within the same database transaction.
 	Outbox OutboxWriter
 

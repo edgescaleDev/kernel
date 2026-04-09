@@ -96,7 +96,7 @@ func NewWithIAM(cfg Config) *Kernel {
 		hooks:     sdk.NewHookRegistry(),
 		readers:   sdk.NewReaderRegistry(),
 	}
-	k.MustRegister(iam.New())
+	k.MustRegister(iam.New(cfg.IAM.CacheTTL))
 
 	return k
 }
@@ -269,7 +269,7 @@ func (k *Kernel) loadPlatformOrg() error {
 		ID uuid.UUID
 	}
 	err := k.db.Raw(
-		"SELECT id FROM module_iam.organizations WHERE status = 'platform' LIMIT 1",
+		"SELECT id FROM organizations WHERE status = 'platform' LIMIT 1",
 	).Scan(&result).Error
 	if err != nil {
 		return fmt.Errorf("load platform org: %w", err)

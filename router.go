@@ -20,6 +20,7 @@ func (k *Kernel) setupRouter() {
 	// Global middleware - applied to every request.
 	k.engine.Use(
 		k.requestID(),
+		k.parseLocale(),
 		k.accessLog(),
 		k.recovery(),
 	)
@@ -56,12 +57,12 @@ func (k *Kernel) setupRouter() {
 		} else {
 			// Standard modules: org-scoped on /v1/ and /v2/.
 			authenticated := v1.Group("/" + moduleID)
-			authenticated.Use(k.resolveOrg(), k.moduleActivation(moduleID))
+			authenticated.Use(k.resolveOrg(), k.resolveUser(), k.moduleActivation(moduleID))
 
 			public := k.engine.Group("/v1/" + moduleID)
 
 			v2Auth := k.engine.Group("/v2/" + moduleID)
-			v2Auth.Use(k.authenticate(), k.resolveOrg(), k.moduleActivation(moduleID))
+			v2Auth.Use(k.authenticate(), k.resolveOrg(), k.resolveUser(), k.moduleActivation(moduleID))
 
 			router = sdk.NewRouter(authenticated, v2Auth, public, k.checkPermission, moduleID)
 		}

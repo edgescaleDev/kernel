@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"go.edgescale.dev/kernel/modules/iam"
 	"go.edgescale.dev/kernel/sdk"
 )
 
@@ -117,7 +118,6 @@ func (k *Kernel) handleActiveModules(c *gin.Context) {
 // handleMe returns the authenticated user's profile, permissions,
 // and active modules for the current org.
 // GET /v1/me
-// TODO: Full implementation depends on IAM module for user/permission lookup.
 func (k *Kernel) handleMe(c *gin.Context) {
 	response := gin.H{
 		"authenticated": true,
@@ -130,14 +130,27 @@ func (k *Kernel) handleMe(c *gin.Context) {
 		}
 	}
 
-	// Include user_id if resolved.
-	if userID, exists := c.Get("user_id"); exists {
-		response["user_id"] = userID
-	}
-
 	// Include org_id if resolved.
 	if orgID, exists := c.Get("org_id"); exists {
 		response["org_id"] = orgID
+	}
+
+	// Attempt to load full user profile via IAM module.
+	if reader, err := sdk.GetReader[iam.IAMReader](k.readers, "iam"); err == nil {
+		subject := c.GetString("user_id")
+		provider := c.GetString("auth_provider")
+
+		if user, err := reader.GetUserByExternalID(c.Request.Context(), provider, subject); err == nil {
+			response["user"] = user
+		} else {
+			// Fallback: just include user_id if IAM fetch fails.
+			response["user_id"] = subject
+		}
+	} else {
+		// Fallback: if IAM module is not registered.
+		if userID, exists := c.Get("user_id"); exists {
+			response["user_id"] = userID
+		}
 	}
 
 	c.JSON(http.StatusOK, sdk.Envelope{

@@ -26,13 +26,14 @@ func registerRoleRoutes(m *Module, router *sdk.Router) {
 // ---- request DTOs ----------------------------------------------------------
 
 type createRoleRequest struct {
-	Name        string `json:"name"        binding:"required"`
-	Description string `json:"description"`
+	Name        sdk.TranslatableField `json:"name"        binding:"required"`
+	Slug        string                `json:"slug"        binding:"required"`
+	Description sdk.TranslatableField `json:"description"`
 }
 
 type updateRoleRequest struct {
-	Name        *string `json:"name"`
-	Description *string `json:"description"`
+	Name        *sdk.TranslatableField `json:"name"`
+	Description *sdk.TranslatableField `json:"description"`
 }
 
 type setRolePermissionsRequest struct {
@@ -70,17 +71,19 @@ func (m *Module) createRole(c *gin.Context) {
 	role := Role{
 		OrgID:       oid,
 		Name:        req.Name,
+		Slug:        req.Slug,
 		Description: req.Description,
 	}
 
 	if err := m.ctx.DB.Create(&role).Error; err != nil {
-		sdk.Error(c, sdk.Conflict("role with this name already exists in this org"))
+		sdk.Error(c, sdk.Conflict("role with this slug already exists in this org"))
 		return
 	}
 
 	m.ctx.Audit.Log(c.Request.Context(), sdk.AuditEntry{
 		Action: sdk.AuditCreate, Resource: "role", ResourceID: role.ID.String(),
 	})
+	m.ctx.Bus.Publish(c.Request.Context(), "iam.role.created", role)
 
 	sdk.Created(c, role)
 }
@@ -141,6 +144,7 @@ func (m *Module) updateRole(c *gin.Context) {
 	m.ctx.Audit.Log(c.Request.Context(), sdk.AuditEntry{
 		Action: sdk.AuditUpdate, Resource: "role", ResourceID: role.ID.String(),
 	})
+	m.ctx.Bus.Publish(c.Request.Context(), "iam.role.updated", role)
 
 	sdk.OK(c, role)
 }
@@ -170,6 +174,7 @@ func (m *Module) deleteRole(c *gin.Context) {
 	m.ctx.Audit.Log(c.Request.Context(), sdk.AuditEntry{
 		Action: sdk.AuditDelete, Resource: "role", ResourceID: uri.ID.String(),
 	})
+	m.ctx.Bus.Publish(c.Request.Context(), "iam.role.deleted", gin.H{"id": uri.ID, "org_id": oid})
 
 	sdk.NoContent(c)
 }
@@ -214,8 +219,22 @@ func (m *Module) setRolePermissions(c *gin.Context) {
 		Action: sdk.AuditUpdate, Resource: "role_permissions", ResourceID: role.ID.String(),
 	})
 
+	// Invalidate middleware cache for all users holding this role
+	if m.ctx.Redis.Client() != nil {
+		var users []User
+		m.ctx.DB.Joins("JOIN module_iam.user_roles ur ON ur.user_id = users.id").
+			Where("ur.role_id = ?", role.ID).
+			Find(&users)
+
+		for _, u := range users {
+			m.ctx.Redis.Del(c.Request.Context(), "middleware_user:"+u.ExternalID+":"+oid.String())
+		}
+	}
+
 	// Return the updated role with permissions.
 	m.ctx.DB.Preload("Permissions").First(&role, role.ID)
+	m.ctx.Bus.Publish(c.Request.Context(), "iam.role.permissions.updated", role)
+
 	sdk.OK(c, role)
 }
 
@@ -289,6 +308,15 @@ func (m *Module) setUserRoles(c *gin.Context) {
 	m.ctx.Audit.Log(c.Request.Context(), sdk.AuditEntry{
 		Action: sdk.AuditUpdate, Resource: "user_roles", ResourceID: uri.ID.String(),
 	})
+	m.ctx.Bus.Publish(c.Request.Context(), "iam.user_roles.updated", gin.H{"user_id": uri.ID, "org_id": oid})
+
+	// Invalidate cache
+	if m.ctx.Redis.Client() != nil {
+		var user User
+		if m.ctx.DB.Unscoped().Where("id = ?", uri.ID).First(&user).Error == nil {
+			m.ctx.Redis.Del(c.Request.Context(), "middleware_user:"+user.ExternalID+":"+oid.String())
+		}
+	}
 
 	sdk.NoContent(c)
 }
