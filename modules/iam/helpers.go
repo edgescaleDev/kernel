@@ -2,7 +2,9 @@ package iam
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -18,6 +20,13 @@ func generateSecureToken() (string, error) {
 		return "", err
 	}
 	return base64.URLEncoding.EncodeToString(b), nil
+}
+
+// hashToken returns the hex-encoded SHA-256 hash of a token.
+// Used to avoid storing raw invitation tokens in the database.
+func hashToken(token string) string {
+	h := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(h[:])
 }
 
 // defaultExpiresAt returns the default invitation expiry timestamp.

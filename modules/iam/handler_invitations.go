@@ -77,7 +77,7 @@ func (m *Module) createInvitation(c *gin.Context) {
 		Recipient: req.Recipient,
 		Role:      req.Role,
 		InvitedBy: inviter.ID,
-		Token:     token,
+		Token:     hashToken(token),
 		ExpiresAt: defaultExpiresAt(),
 	}
 
@@ -91,7 +91,20 @@ func (m *Module) createInvitation(c *gin.Context) {
 	})
 	m.ctx.Bus.Publish(c.Request.Context(), "iam.invitation.created", inv)
 
-	sdk.Created(c, inv)
+	// Return the raw token in the response so the caller can deliver it.
+	// The model's Token field is json:"-" (stores the hash), so we overlay it.
+	sdk.Created(c, gin.H{
+		"id":         inv.ID,
+		"org_id":     inv.OrgID,
+		"channel":    inv.Channel,
+		"recipient":  inv.Recipient,
+		"role":       inv.Role,
+		"invited_by": inv.InvitedBy,
+		"token":      token,
+		"status":     inv.Status,
+		"expires_at": inv.ExpiresAt,
+		"created_at": inv.CreatedAt,
+	})
 }
 
 func (m *Module) revokeInvitation(c *gin.Context) {
@@ -126,7 +139,7 @@ func (m *Module) acceptInvitation(c *gin.Context) {
 	}
 
 	var inv OrgInvitation
-	if err := m.ctx.DB.Where("token = ? AND status = 'pending'", req.Token).First(&inv).Error; err != nil {
+	if err := m.ctx.DB.Where("token = ? AND status = 'pending'", hashToken(req.Token)).First(&inv).Error; err != nil {
 		sdk.Error(c, sdk.NotFound("invitation", "token"))
 		return
 	}

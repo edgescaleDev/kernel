@@ -73,7 +73,7 @@ func (m *Module) onboardUser(c *gin.Context) {
 	// If there is an invitation token, auto-create membership and assign roles.
 	if req.InvitationToken != "" {
 		var inv OrgInvitation
-		if err := tx.Where("token = ? AND status = 'accepted'", req.InvitationToken).First(&inv).Error; err != nil {
+		if err := tx.Where("token = ? AND status = 'accepted'", hashToken(req.InvitationToken)).First(&inv).Error; err != nil {
 			tx.Rollback()
 			sdk.Error(c, sdk.BadRequest("invalid or unaccepted invitation token"))
 			return
