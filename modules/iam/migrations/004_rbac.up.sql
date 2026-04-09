@@ -4,12 +4,13 @@ CREATE TABLE IF NOT EXISTS module_iam.roles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     org_id UUID NOT NULL REFERENCES module_iam.organizations(id) ON DELETE CASCADE,
     name JSONB NOT NULL DEFAULT '{}',
-    description TEXT NOT NULL DEFAULT '',
+    slug TEXT NOT NULL,
+    description JSONB NOT NULL DEFAULT '{}',
     is_system BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     deleted_at TIMESTAMPTZ,
-    CONSTRAINT uq_roles_org_name UNIQUE (org_id, name)
+    CONSTRAINT uq_roles_org_slug UNIQUE (org_id, slug)
 );
 CREATE INDEX IF NOT EXISTS idx_roles_org_id ON module_iam.roles (org_id)
 WHERE deleted_at IS NULL;
