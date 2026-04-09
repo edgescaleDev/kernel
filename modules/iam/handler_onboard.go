@@ -20,6 +20,12 @@ type onboardUserRequest struct {
 	Phone           string                `json:"phone"`
 	Name            sdk.TranslatableField `json:"name" binding:"required"`
 	InvitationToken string                `json:"invitation_token"`
+	Org             *onboardOrgRequest    `json:"org"`
+}
+
+type onboardOrgRequest struct {
+	Name sdk.TranslatableField `json:"name" binding:"required"`
+	Slug string                `json:"slug" binding:"required"`
 }
 
 func (m *Module) onboardUser(c *gin.Context) {
@@ -42,6 +48,11 @@ func (m *Module) onboardUser(c *gin.Context) {
 
 	var req onboardUserRequest
 	if !sdk.BindAndValidate(c, &req) {
+		return
+	}
+
+	if req.InvitationToken != "" && req.Org != nil {
+		sdk.Error(c, sdk.BadRequest("cannot provide both invitation_token and org"))
 		return
 	}
 
@@ -130,6 +141,23 @@ func (m *Module) onboardUser(c *gin.Context) {
 				})
 			}
 		}
+	}
+
+	// If an org payload is provided, create a new org and assign the user as owner.
+	if req.Org != nil {
+		org := Organization{
+			Name: req.Org.Name,
+			Slug: req.Org.Slug,
+		}
+		if err := provisionOrgForUser(tx, &org, user.ID); err != nil {
+			tx.Rollback()
+			sdk.Error(c, sdk.Conflict("organization with this slug already exists"))
+			return
+		}
+		m.ctx.Audit.Log(c.Request.Context(), sdk.AuditEntry{
+			Action: sdk.AuditCreate, Resource: "organization", ResourceID: org.ID.String(),
+		})
+		m.ctx.Bus.Publish(c.Request.Context(), "iam.org.created", org)
 	}
 
 	if err := tx.Commit().Error; err != nil {
