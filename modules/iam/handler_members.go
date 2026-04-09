@@ -2,6 +2,7 @@ package iam
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -48,8 +49,9 @@ func (m *Module) addMember(c *gin.Context) {
 
 	oid := orgID(c)
 	member := OrgMember{
-		OrgID:  oid,
-		UserID: req.UserID,
+		OrgID:    oid,
+		UserID:   req.UserID,
+		JoinedAt: time.Now(),
 	}
 
 	if err := m.ctx.DB.Create(&member).Error; err != nil {

@@ -117,8 +117,9 @@ func (m *Module) onboardUser(c *gin.Context) {
 
 		// Create org membership.
 		member := OrgMember{
-			OrgID:  inv.OrgID,
-			UserID: user.ID,
+			OrgID:    inv.OrgID,
+			UserID:   user.ID,
+			JoinedAt: time.Now(),
 		}
 		if err := tx.Create(&member).Error; err == nil {
 			m.ctx.Audit.Log(c.Request.Context(), sdk.AuditEntry{

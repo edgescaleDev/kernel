@@ -3,6 +3,7 @@ package iam
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -101,8 +102,9 @@ func (m *Module) createUser(c *gin.Context) {
 
 	// Auto-create org membership for the requesting org.
 	member := OrgMember{
-		OrgID:  oid,
-		UserID: user.ID,
+		OrgID:    oid,
+		UserID:   user.ID,
+		JoinedAt: time.Now(),
 	}
 	if err := tx.Create(&member).Error; err != nil {
 		tx.Rollback()

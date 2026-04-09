@@ -3,6 +3,7 @@ package iam
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"go.edgescale.dev/kernel/sdk"
@@ -85,8 +86,9 @@ func provisionOrgForUser(tx *gorm.DB, org *Organization, userID uuid.UUID) error
 	}
 
 	member := OrgMember{
-		OrgID:  org.ID,
-		UserID: userID,
+		OrgID:    org.ID,
+		UserID:   userID,
+		JoinedAt: time.Now(),
 	}
 	if err := tx.Create(&member).Error; err != nil {
 		return fmt.Errorf("create member: %w", err)
