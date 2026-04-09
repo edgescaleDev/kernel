@@ -4,6 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"go.edgescale.dev/kernel/sdk"
+	"gorm.io/gorm/clause"
 )
 
 // registerRoleRoutes mounts RBAC endpoints under /v1/iam/.
@@ -252,25 +253,31 @@ func (m *Module) setRolePermissions(c *gin.Context) {
 		}
 	}
 
-	// Replace: delete existing, insert new.
+	// Replace: insert new first (superset), then delete stale.
+	// This avoids a zero-permission window between delete and insert.
 	tx := m.ctx.DB.Begin()
-
-	if err := tx.Where("role_id = ?", role.ID).Delete(&RolePermission{}).Error; err != nil {
-		tx.Rollback()
-		sdk.Error(c, sdk.Internal("failed to clear existing permissions"))
-		return
-	}
 
 	if len(req.Permissions) > 0 {
 		perms := make([]RolePermission, len(req.Permissions))
 		for i, key := range req.Permissions {
 			perms[i] = RolePermission{RoleID: role.ID, PermissionKey: key}
 		}
-		if err := tx.Create(&perms).Error; err != nil {
+		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&perms).Error; err != nil {
 			tx.Rollback()
 			sdk.Error(c, sdk.BadRequest("failed to assign permissions"))
 			return
 		}
+	}
+
+	// Delete permissions not in the new set.
+	q := tx.Where("role_id = ?", role.ID)
+	if len(req.Permissions) > 0 {
+		q = q.Where("permission_key NOT IN ?", req.Permissions)
+	}
+	if err := q.Delete(&RolePermission{}).Error; err != nil {
+		tx.Rollback()
+		sdk.Error(c, sdk.Internal("failed to clean up stale permissions"))
+		return
 	}
 
 	if err := tx.Commit().Error; err != nil {

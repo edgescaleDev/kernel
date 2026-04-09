@@ -77,7 +77,9 @@ func (r *iamReader) GetOrg(ctx context.Context, orgID uuid.UUID) (*Organization,
 func (r *iamReader) ListOrgMembers(ctx context.Context, orgID uuid.UUID) ([]OrgMember, error) {
 	var members []OrgMember
 	err := r.ctx.DB.WithContext(ctx).
+		Preload("User").
 		Where("org_id = ?", orgID).
+		Limit(1000).
 		Find(&members).Error
 	return members, err
 }

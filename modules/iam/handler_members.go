@@ -31,7 +31,7 @@ func (m *Module) listMembers(c *gin.Context) {
 	page := sdk.ParsePageRequest(c)
 
 	result, err := sdk.Paginate[OrgMember](
-		m.ctx.DB.Where("org_id = ?", oid),
+		m.ctx.DB.Preload("User").Where("org_id = ?", oid),
 		page,
 	)
 	if err != nil {

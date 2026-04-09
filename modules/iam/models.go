@@ -69,6 +69,7 @@ type OrgMember struct {
 	ID        uuid.UUID      `json:"id"         gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
 	OrgID     uuid.UUID      `json:"org_id"     gorm:"type:uuid;not null;index"`
 	UserID    uuid.UUID      `json:"user_id"    gorm:"type:uuid;not null;index"`
+	User      *User          `json:"user,omitempty" gorm:"foreignKey:UserID"`
 	JoinedAt  time.Time      `json:"joined_at"  gorm:"not null"`
 	CreatedAt time.Time      `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt time.Time      `json:"updated_at" gorm:"autoUpdateTime"`
