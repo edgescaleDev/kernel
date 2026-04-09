@@ -58,6 +58,14 @@ func (m *Module) onboardUser(c *gin.Context) {
 
 	tx := m.ctx.DB.Begin()
 
+	// Collect events to publish after successful commit.
+	type deferredEvent struct {
+		subject string
+		payload any
+	}
+	var events []deferredEvent
+	var audits []sdk.AuditEntry
+
 	user := User{
 		ExternalID: identity.Subject,
 		Provider:   identity.Provider,
@@ -90,10 +98,10 @@ func (m *Module) onboardUser(c *gin.Context) {
 			return
 		}
 	} else {
-		m.ctx.Audit.Log(c.Request.Context(), sdk.AuditEntry{
+		audits = append(audits, sdk.AuditEntry{
 			Action: sdk.AuditCreate, Resource: "user", ResourceID: user.ID.String(),
 		})
-		m.ctx.Bus.Publish(c.Request.Context(), "iam.user.created", user)
+		events = append(events, deferredEvent{"iam.user.created", user})
 	}
 
 	// If there is an invitation token, auto-create membership and assign roles.
@@ -126,10 +134,10 @@ func (m *Module) onboardUser(c *gin.Context) {
 			sdk.Error(c, sdk.Internal("failed to create org membership"))
 			return
 		}
-		m.ctx.Audit.Log(c.Request.Context(), sdk.AuditEntry{
+		audits = append(audits, sdk.AuditEntry{
 			Action: sdk.AuditCreate, Resource: "org_member", ResourceID: member.ID.String(),
 		})
-		m.ctx.Bus.Publish(c.Request.Context(), "iam.member.added", member)
+		events = append(events, deferredEvent{"iam.member.added", member})
 
 		// Assign the role specified in the invitation.
 		var role Role
@@ -148,7 +156,7 @@ func (m *Module) onboardUser(c *gin.Context) {
 			sdk.Error(c, sdk.Internal("failed to assign role"))
 			return
 		}
-		m.ctx.Audit.Log(c.Request.Context(), sdk.AuditEntry{
+		audits = append(audits, sdk.AuditEntry{
 			Action: sdk.AuditCreate, Resource: "user_roles", ResourceID: userRole.ID.String(),
 		})
 	}
@@ -164,15 +172,24 @@ func (m *Module) onboardUser(c *gin.Context) {
 			sdk.Error(c, sdk.Conflict("organization with this slug already exists"))
 			return
 		}
-		m.ctx.Audit.Log(c.Request.Context(), sdk.AuditEntry{
+		audits = append(audits, sdk.AuditEntry{
 			Action: sdk.AuditCreate, Resource: "organization", ResourceID: org.ID.String(),
 		})
-		m.ctx.Bus.Publish(c.Request.Context(), "iam.org.created", org)
+		events = append(events, deferredEvent{"iam.org.created", org})
 	}
 
 	if err := tx.Commit().Error; err != nil {
 		sdk.Error(c, sdk.Internal("failed to complete onboarding"))
 		return
+	}
+
+	// Publish events only after successful commit.
+	ctx := c.Request.Context()
+	for _, a := range audits {
+		m.ctx.Audit.Log(ctx, a)
+	}
+	for _, e := range events {
+		m.ctx.Bus.Publish(ctx, e.subject, e.payload)
 	}
 
 	sdk.Created(c, user)

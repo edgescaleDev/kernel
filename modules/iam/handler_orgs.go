@@ -7,7 +7,7 @@ import (
 
 // registerOrgRoutes mounts organization-related endpoints under /v1/iam/.
 func registerOrgRoutes(m *Module, router *sdk.Router) {
-	router.GET("/orgs", "iam.orgs.read", m.listOrgs)
+	router.GET("/orgs", sdk.Self, m.listOrgs)
 	router.POST("/orgs", "iam.orgs.manage", m.createOrg)
 	router.POST("/orgs/register", sdk.Self, m.registerOrg)
 	router.GET("/orgs/:id", "iam.orgs.read", m.getOrg)
@@ -187,6 +187,7 @@ func (m *Module) updateOrg(c *gin.Context) {
 			sdk.Error(c, sdk.BadRequest(err.Error()))
 			return
 		}
+		m.ctx.DB.First(&org, org.ID)
 	}
 
 	m.ctx.Audit.Log(c.Request.Context(), sdk.AuditEntry{
@@ -217,8 +218,55 @@ func (m *Module) deleteOrg(c *gin.Context) {
 		return
 	}
 
-	if err := m.ctx.DB.Delete(&org).Error; err != nil {
+	// Collect affected users before cascade (data still exists).
+	var affectedExternalIDs []string
+	if m.ctx.Redis.Client() != nil {
+		m.ctx.DB.Model(&User{}).
+			Joins("JOIN org_members ON org_members.user_id = users.id AND org_members.deleted_at IS NULL").
+			Where("org_members.org_id = ?", org.ID).
+			Pluck("external_id", &affectedExternalIDs)
+	}
+
+	tx := m.ctx.DB.Begin()
+
+	// Cascade cleanup: soft-delete doesn't trigger SQL ON DELETE CASCADE.
+	// Remove in dependency order: user_roles → role_permissions → roles → invitations → members → org.
+	if err := tx.Where("org_id = ?", org.ID).Delete(&UserRole{}).Error; err != nil {
+		tx.Rollback()
+		sdk.Error(c, sdk.Internal("failed to clean up user roles"))
+		return
+	}
+	// Delete role_permissions for roles in this org.
+	if err := tx.Where("role_id IN (?)",
+		tx.Model(&Role{}).Select("id").Where("org_id = ?", org.ID),
+	).Delete(&RolePermission{}).Error; err != nil {
+		tx.Rollback()
+		sdk.Error(c, sdk.Internal("failed to clean up role permissions"))
+		return
+	}
+	if err := tx.Where("org_id = ?", org.ID).Delete(&Role{}).Error; err != nil {
+		tx.Rollback()
+		sdk.Error(c, sdk.Internal("failed to clean up roles"))
+		return
+	}
+	if err := tx.Where("org_id = ?", org.ID).Delete(&OrgInvitation{}).Error; err != nil {
+		tx.Rollback()
+		sdk.Error(c, sdk.Internal("failed to clean up invitations"))
+		return
+	}
+	if err := tx.Where("org_id = ?", org.ID).Delete(&OrgMember{}).Error; err != nil {
+		tx.Rollback()
+		sdk.Error(c, sdk.Internal("failed to clean up members"))
+		return
+	}
+	if err := tx.Delete(&org).Error; err != nil {
+		tx.Rollback()
 		sdk.Error(c, sdk.Internal("failed to delete organization"))
+		return
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		sdk.Error(c, sdk.Internal("transaction failed"))
 		return
 	}
 
@@ -226,6 +274,15 @@ func (m *Module) deleteOrg(c *gin.Context) {
 		Action: sdk.AuditDelete, Resource: "organization", ResourceID: org.ID.String(),
 	})
 	m.ctx.Bus.Publish(c.Request.Context(), "iam.org.deleted", org)
+
+	// Invalidate middleware cache for affected users.
+	if len(affectedExternalIDs) > 0 {
+		keys := make([]string, len(affectedExternalIDs))
+		for i, eid := range affectedExternalIDs {
+			keys[i] = "middleware_user:" + eid + ":" + org.ID.String()
+		}
+		m.ctx.Redis.Client().Del(c.Request.Context(), keys...)
+	}
 
 	sdk.NoContent(c)
 }

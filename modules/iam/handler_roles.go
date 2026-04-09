@@ -139,6 +139,8 @@ func (m *Module) updateRole(c *gin.Context) {
 			sdk.Error(c, sdk.BadRequest(err.Error()))
 			return
 		}
+		// Re-read to get the updated values (GORM Updates doesn't refresh the struct).
+		m.ctx.DB.Preload("Permissions").First(&role, role.ID)
 	}
 
 	m.ctx.Audit.Log(c.Request.Context(), sdk.AuditEntry{
@@ -166,8 +168,40 @@ func (m *Module) deleteRole(c *gin.Context) {
 		return
 	}
 
-	if err := m.ctx.DB.Delete(&role).Error; err != nil {
-		sdk.Error(c, sdk.BadRequest(err.Error()))
+	// Collect affected users before deleting assignments (needed for cache invalidation).
+	var affectedExternalIDs []string
+	if m.ctx.Redis.Client() != nil {
+		m.ctx.DB.Model(&User{}).
+			Joins("JOIN module_iam.user_roles ur ON ur.user_id = users.id").
+			Where("ur.role_id = ?", role.ID).
+			Pluck("external_id", &affectedExternalIDs)
+	}
+
+	tx := m.ctx.DB.Begin()
+
+	// Remove user_roles referencing this role so users don't retain stale permissions.
+	if err := tx.Where("role_id = ?", role.ID).Delete(&UserRole{}).Error; err != nil {
+		tx.Rollback()
+		sdk.Error(c, sdk.Internal("failed to clean up user role assignments"))
+		return
+	}
+
+	// Remove role_permissions.
+	if err := tx.Where("role_id = ?", role.ID).Delete(&RolePermission{}).Error; err != nil {
+		tx.Rollback()
+		sdk.Error(c, sdk.Internal("failed to clean up role permissions"))
+		return
+	}
+
+	// Soft-delete the role itself.
+	if err := tx.Delete(&role).Error; err != nil {
+		tx.Rollback()
+		sdk.Error(c, sdk.Internal("failed to delete role"))
+		return
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		sdk.Error(c, sdk.Internal("transaction failed"))
 		return
 	}
 
@@ -175,6 +209,15 @@ func (m *Module) deleteRole(c *gin.Context) {
 		Action: sdk.AuditDelete, Resource: "role", ResourceID: uri.ID.String(),
 	})
 	m.ctx.Bus.Publish(c.Request.Context(), "iam.role.deleted", gin.H{"id": uri.ID, "org_id": oid})
+
+	// Invalidate middleware cache for affected users.
+	if len(affectedExternalIDs) > 0 {
+		keys := make([]string, len(affectedExternalIDs))
+		for i, eid := range affectedExternalIDs {
+			keys[i] = "middleware_user:" + eid + ":" + oid.String()
+		}
+		m.ctx.Redis.Client().Del(c.Request.Context(), keys...)
+	}
 
 	sdk.NoContent(c)
 }

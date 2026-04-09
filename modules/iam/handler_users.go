@@ -199,6 +199,8 @@ func (m *Module) updateUser(c *gin.Context) {
 			sdk.Error(c, sdk.BadRequest(err.Error()))
 			return
 		}
+		// Re-read to get the updated values (GORM Updates doesn't refresh the struct).
+		m.ctx.DB.First(&user, user.ID)
 	}
 
 	m.ctx.Audit.Log(c.Request.Context(), sdk.AuditEntry{
@@ -227,6 +229,17 @@ func (m *Module) deleteUser(c *gin.Context) {
 	}
 
 	oid := orgID(c)
+
+	// Prevent self-removal — admins cannot remove themselves.
+	sub := userSubject(c)
+	provider := c.GetString("auth_provider")
+	var caller User
+	if m.ctx.DB.Where("external_id = ? AND provider = ?", sub, provider).First(&caller).Error == nil {
+		if caller.ID == uri.ID {
+			sdk.Error(c, sdk.BadRequest("cannot remove yourself from the organization"))
+			return
+		}
+	}
 
 	// Verify membership before deleting.
 	var member OrgMember
@@ -349,6 +362,8 @@ func (m *Module) updateMe(c *gin.Context) {
 			sdk.Error(c, sdk.BadRequest(err.Error()))
 			return
 		}
+		// Re-read to get the updated values (GORM Updates doesn't refresh the struct).
+		m.ctx.DB.First(&user, user.ID)
 	}
 
 	m.ctx.Audit.Log(c.Request.Context(), sdk.AuditEntry{

@@ -86,6 +86,17 @@ func (m *Module) removeMember(c *gin.Context) {
 		return
 	}
 
+	// Prevent self-removal.
+	sub := userSubject(c)
+	provider := c.GetString("auth_provider")
+	var caller User
+	if m.ctx.DB.Where("external_id = ? AND provider = ?", sub, provider).First(&caller).Error == nil {
+		if caller.ID == member.UserID {
+			sdk.Error(c, sdk.BadRequest("cannot remove yourself from the organization"))
+			return
+		}
+	}
+
 	// Use a transaction to atomically remove membership and associated roles.
 	tx := m.ctx.DB.Begin()
 
