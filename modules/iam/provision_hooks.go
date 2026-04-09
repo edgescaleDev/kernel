@@ -68,6 +68,13 @@ func seedSystemRoles(tx *gorm.DB, orgID uuid.UUID) error {
 			if err := tx.Create(&r).Error; err != nil {
 				return fmt.Errorf("seed role %s: %w", r.Slug, err)
 			}
+			// Assign wildcard permission to the owner role so they can access everything.
+			if r.Slug == "owner" {
+				perm := RolePermission{RoleID: r.ID, PermissionKey: "*"}
+				if err := tx.Create(&perm).Error; err != nil {
+					return fmt.Errorf("seed owner permission: %w", err)
+				}
+			}
 		}
 	}
 	return nil

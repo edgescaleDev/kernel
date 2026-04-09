@@ -239,6 +239,7 @@ func (m *Module) setRolePermissions(c *gin.Context) {
 	})
 
 	// Invalidate middleware cache for all users holding this role.
+	// Middleware keys are NOT namespaced, so use the raw client.
 	if m.ctx.Redis.Client() != nil {
 		var users []User
 		m.ctx.DB.Joins("JOIN module_iam.user_roles ur ON ur.user_id = users.id").
@@ -250,7 +251,7 @@ func (m *Module) setRolePermissions(c *gin.Context) {
 			for i, u := range users {
 				keys[i] = "middleware_user:" + u.ExternalID + ":" + oid.String()
 			}
-			m.ctx.Redis.Del(c.Request.Context(), keys...)
+			m.ctx.Redis.Client().Del(c.Request.Context(), keys...)
 		}
 	}
 
@@ -311,6 +312,16 @@ func (m *Module) setUserRoles(c *gin.Context) {
 		return
 	}
 
+	// Validate all role IDs belong to this organization to prevent cross-org injection.
+	if len(req.RoleIDs) > 0 {
+		var validCount int64
+		m.ctx.DB.Model(&Role{}).Where("id IN ? AND org_id = ? AND deleted_at IS NULL", req.RoleIDs, oid).Count(&validCount)
+		if int(validCount) != len(req.RoleIDs) {
+			sdk.Error(c, sdk.BadRequest("one or more roles do not belong to this organization"))
+			return
+		}
+	}
+
 	// Replace: delete existing, insert new.
 	tx := m.ctx.DB.Begin()
 
@@ -342,11 +353,11 @@ func (m *Module) setUserRoles(c *gin.Context) {
 	})
 	m.ctx.Bus.Publish(c.Request.Context(), "iam.user_roles.updated", gin.H{"user_id": uri.ID, "org_id": oid})
 
-	// Invalidate cache
+	// Invalidate cache: middleware keys use raw client.
 	if m.ctx.Redis.Client() != nil {
 		var user User
 		if m.ctx.DB.Unscoped().Where("id = ?", uri.ID).First(&user).Error == nil {
-			m.ctx.Redis.Del(c.Request.Context(), "middleware_user:"+user.ExternalID+":"+oid.String())
+			m.ctx.Redis.Client().Del(c.Request.Context(), "middleware_user:"+user.ExternalID+":"+oid.String())
 		}
 	}
 

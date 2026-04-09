@@ -133,6 +133,11 @@ func (m *Module) getOrg(c *gin.Context) {
 		return
 	}
 
+	if uri.ID != orgID(c) {
+		sdk.Error(c, sdk.Forbidden("cannot access other organizations"))
+		return
+	}
+
 	var org Organization
 	if err := m.ctx.DB.Where("id = ?", uri.ID).First(&org).Error; err != nil {
 		sdk.Error(c, sdk.NotFound("organization", uri.ID))
@@ -148,6 +153,11 @@ func (m *Module) updateOrg(c *gin.Context) {
 	}
 	var req updateOrgRequest
 	if !sdk.BindAndValidate(c, &req) {
+		return
+	}
+
+	if uri.ID != orgID(c) {
+		sdk.Error(c, sdk.Forbidden("cannot access other organizations"))
 		return
 	}
 
@@ -189,6 +199,11 @@ func (m *Module) updateOrg(c *gin.Context) {
 func (m *Module) deleteOrg(c *gin.Context) {
 	var uri resourceURI
 	if !sdk.BindURI(c, &uri) {
+		return
+	}
+
+	if uri.ID != orgID(c) {
+		sdk.Error(c, sdk.Forbidden("cannot access other organizations"))
 		return
 	}
 

@@ -39,7 +39,7 @@ type updateUserRequest struct {
 	AvatarURL *string                `json:"avatar_url"`
 	Locale    *string                `json:"locale"`
 	Timezone  *string                `json:"timezone"`
-	Status    *string                `json:"status"`
+	Status    *string                `json:"status"     binding:"omitempty,oneof=active suspended"`
 }
 
 type updateMeRequest struct {
@@ -206,12 +206,12 @@ func (m *Module) updateUser(c *gin.Context) {
 	})
 	m.ctx.Bus.Publish(c.Request.Context(), "iam.user.updated", user)
 
-	// Invalidate caches
+	// Invalidate caches: module-owned keys use namespaced Redis,
+	// middleware keys use the raw client (no prefix).
 	if m.ctx.Redis.Client() != nil {
-		m.ctx.Redis.Del(c.Request.Context(),
-			fmt.Sprintf("user_org_membership:%s:%s", uri.ID, oid),
-			"middleware_user:"+user.ExternalID+":"+oid.String(),
-		)
+		ctx := c.Request.Context()
+		m.ctx.Redis.Del(ctx, fmt.Sprintf("user_org_membership:%s:%s", uri.ID, oid))
+		m.ctx.Redis.Client().Del(ctx, "middleware_user:"+user.ExternalID+":"+oid.String())
 	}
 
 	sdk.OK(c, user)
@@ -261,14 +261,15 @@ func (m *Module) deleteUser(c *gin.Context) {
 	})
 	m.ctx.Bus.Publish(c.Request.Context(), "iam.member.removed", gin.H{"id": member.ID, "org_id": oid, "user_id": uri.ID})
 
-	// Invalidate caches
+	// Invalidate caches: module-owned keys use namespaced Redis,
+	// middleware keys use the raw client (no prefix).
 	if m.ctx.Redis.Client() != nil {
-		keys := []string{fmt.Sprintf("user_org_membership:%s:%s", uri.ID, oid)}
+		ctx := c.Request.Context()
+		m.ctx.Redis.Del(ctx, fmt.Sprintf("user_org_membership:%s:%s", uri.ID, oid))
 		var user User
 		if m.ctx.DB.Where("id = ?", uri.ID).First(&user).Error == nil {
-			keys = append(keys, "middleware_user:"+user.ExternalID+":"+oid.String())
+			m.ctx.Redis.Client().Del(ctx, "middleware_user:"+user.ExternalID+":"+oid.String())
 		}
-		m.ctx.Redis.Del(c.Request.Context(), keys...)
 	}
 
 	sdk.NoContent(c)
@@ -355,12 +356,12 @@ func (m *Module) updateMe(c *gin.Context) {
 	})
 	m.ctx.Bus.Publish(c.Request.Context(), "iam.user.updated", user)
 
-	// Invalidate caches
+	// Invalidate caches: module-owned keys use namespaced Redis,
+	// middleware keys use the raw client (no prefix).
 	if m.ctx.Redis.Client() != nil {
-		m.ctx.Redis.Del(c.Request.Context(),
-			fmt.Sprintf("user_org_membership:%s:%s", user.ID, oid),
-			"middleware_user:"+user.ExternalID+":"+oid.String(),
-		)
+		ctx := c.Request.Context()
+		m.ctx.Redis.Del(ctx, fmt.Sprintf("user_org_membership:%s:%s", user.ID, oid))
+		m.ctx.Redis.Client().Del(ctx, "middleware_user:"+user.ExternalID+":"+oid.String())
 	}
 
 	sdk.OK(c, user)

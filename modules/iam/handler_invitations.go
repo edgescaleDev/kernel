@@ -165,25 +165,40 @@ func (m *Module) acceptInvitation(c *gin.Context) {
 		return
 	}
 
+	tx := m.ctx.DB.Begin()
+
 	var inv OrgInvitation
-	if err := m.ctx.DB.Where("token = ? AND status = 'pending'", hashToken(req.Token)).First(&inv).Error; err != nil {
+	if err := tx.Set("gorm:query_option", "FOR UPDATE SKIP LOCKED").
+		Where("token = ? AND status = 'pending'", hashToken(req.Token)).
+		First(&inv).Error; err != nil {
+		tx.Rollback()
 		sdk.Error(c, sdk.NotFound("invitation", "token"))
 		return
 	}
 
 	// Check expiry.
 	if time.Now().After(inv.ExpiresAt) {
-		m.ctx.DB.Model(&inv).Update("status", "expired")
+		tx.Model(&inv).Update("status", "expired")
+		tx.Commit()
 		sdk.Error(c, sdk.BadRequest("invitation has expired"))
 		return
 	}
 
 	// Mark as accepted.
 	now := time.Now()
-	m.ctx.DB.Model(&inv).Updates(map[string]any{
+	if err := tx.Model(&inv).Updates(map[string]any{
 		"status":      "accepted",
 		"accepted_at": &now,
-	})
+	}).Error; err != nil {
+		tx.Rollback()
+		sdk.Error(c, sdk.Internal("failed to accept invitation"))
+		return
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		sdk.Error(c, sdk.Internal("failed to accept invitation"))
+		return
+	}
 
 	m.ctx.Audit.Log(c.Request.Context(), sdk.AuditEntry{
 		Action: sdk.AuditActivate, Resource: "org_invitation", ResourceID: inv.ID.String(),
