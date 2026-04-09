@@ -88,9 +88,19 @@ func (m *Module) onboardUser(c *gin.Context) {
 	// If there is an invitation token, auto-create membership and assign roles.
 	if req.InvitationToken != "" {
 		var inv OrgInvitation
-		if err := tx.Where("token = ? AND status = 'accepted'", hashToken(req.InvitationToken)).First(&inv).Error; err != nil {
+		// Lock the invitation row to prevent concurrent onboarding with the same token.
+		if err := tx.Set("gorm:query_option", "FOR UPDATE SKIP LOCKED").
+			Where("token = ? AND status = 'accepted'", hashToken(req.InvitationToken)).
+			First(&inv).Error; err != nil {
 			tx.Rollback()
 			sdk.Error(c, sdk.BadRequest("invalid or unaccepted invitation token"))
+			return
+		}
+
+		// Immediately mark as redeemed so no other request can use it.
+		if err := tx.Model(&inv).Update("status", "redeemed").Error; err != nil {
+			tx.Rollback()
+			sdk.Error(c, sdk.Internal("failed to redeem invitation"))
 			return
 		}
 
