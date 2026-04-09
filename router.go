@@ -46,8 +46,9 @@ func (k *Kernel) setupRouter() {
 		if manifest.Type == sdk.TypeAdmin {
 			// Admin modules are mounted on /admin/v1/{module_id}/.
 			// No resolveOrg or moduleActivation — they operate cross-org.
+			// requirePlatformAdmin loads permissions from the platform org.
 			adminAuth := k.engine.Group("/admin/v1/" + moduleID)
-			adminAuth.Use(k.authenticate())
+			adminAuth.Use(k.authenticate(), k.requirePlatformAdmin())
 
 			adminPublic := k.engine.Group("/admin/v1/" + moduleID + "/public")
 
@@ -86,6 +87,11 @@ func (k *Kernel) Serve() error {
 
 	// Sync the in-memory module manifests to the database.
 	if err := k.syncRegistry(); err != nil {
+		return fmt.Errorf("kernel: %w", err)
+	}
+
+	// Discover and cache the platform org ID for admin middleware.
+	if err := k.loadPlatformOrg(); err != nil {
 		return fmt.Errorf("kernel: %w", err)
 	}
 

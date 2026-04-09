@@ -2,7 +2,6 @@ CREATE TABLE IF NOT EXISTS module_iam.org_members (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     org_id UUID NOT NULL REFERENCES module_iam.organizations(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES module_iam.users(id) ON DELETE CASCADE,
-    role TEXT NOT NULL DEFAULT 'member',
     joined_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -11,8 +10,6 @@ CREATE TABLE IF NOT EXISTS module_iam.org_members (
 );
 CREATE INDEX IF NOT EXISTS idx_org_members_org_id ON module_iam.org_members (org_id);
 CREATE INDEX IF NOT EXISTS idx_org_members_user_id ON module_iam.org_members (user_id);
-CREATE INDEX IF NOT EXISTS idx_org_members_role ON module_iam.org_members (org_id, role)
-WHERE deleted_at IS NULL;
 CREATE TABLE IF NOT EXISTS module_iam.org_invitations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     org_id UUID NOT NULL REFERENCES module_iam.organizations(id) ON DELETE CASCADE,

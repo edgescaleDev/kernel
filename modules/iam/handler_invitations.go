@@ -59,7 +59,7 @@ func (m *Module) createInvitation(c *gin.Context) {
 	provider := c.GetString("auth_provider")
 	var inviter User
 	if err := m.ctx.DB.Where(
-		"external_id = ? AND provider = ? AND org_id = ?", sub, provider, oid,
+		"external_id = ? AND provider = ?", sub, provider,
 	).First(&inviter).Error; err != nil {
 		sdk.Error(c, sdk.Unauthorized("inviting user not found"))
 		return

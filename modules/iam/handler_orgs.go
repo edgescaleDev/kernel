@@ -31,7 +31,7 @@ type updateOrgRequest struct {
 func (m *Module) listOrgs(c *gin.Context) {
 	page := sdk.ParsePageRequest(c)
 
-	result, err := sdk.Paginate[Organization](m.ctx.DB, page)
+	result, err := sdk.Paginate[Organization](m.ctx.DB.Where("status != 'platform'"), page)
 	if err != nil {
 		sdk.Error(c, sdk.BadRequest(err.Error()))
 		return
@@ -89,6 +89,10 @@ func (m *Module) updateOrg(c *gin.Context) {
 	var org Organization
 	if err := m.ctx.DB.Where("id = ?", uri.ID).First(&org).Error; err != nil {
 		sdk.Error(c, sdk.NotFound("organization", uri.ID))
+		return
+	}
+	if org.Status == "platform" {
+		sdk.Error(c, sdk.Forbidden("platform organization cannot be modified"))
 		return
 	}
 

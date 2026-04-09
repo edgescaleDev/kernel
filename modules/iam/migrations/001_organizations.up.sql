@@ -1,7 +1,7 @@
 CREATE SCHEMA IF NOT EXISTS module_iam;
 CREATE TABLE IF NOT EXISTS module_iam.organizations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name TEXT NOT NULL,
+    name JSONB NOT NULL DEFAULT '{}',
     slug TEXT NOT NULL UNIQUE,
     parent_id UUID REFERENCES module_iam.organizations(id),
     logo_url TEXT NOT NULL DEFAULT '',

@@ -10,10 +10,10 @@ import (
 
 // ---- Users ----------------------------------------------------------------
 
-// User represents a platform user mapped from an external IdP subject.
+// User represents a platform-level identity mapped from an external IdP subject.
+// Users are not scoped to an org — org membership is tracked via OrgMember.
 type User struct {
 	ID         uuid.UUID       `json:"id"          gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
-	OrgID      uuid.UUID       `json:"org_id"      gorm:"type:uuid;not null;index"`
 	ExternalID string          `json:"external_id" gorm:"not null"`
 	Provider   string          `json:"provider"    gorm:"not null;default:'platform'"`
 	Email      string          `json:"email"       gorm:"not null;default:''"`
@@ -62,11 +62,12 @@ func (Organization) TableName() string { return "module_iam.organizations" }
 // ---- Membership -----------------------------------------------------------
 
 // OrgMember represents a user's membership within an organization.
+// Membership is purely about belonging — authorization is handled by
+// user_roles → roles → role_permissions.
 type OrgMember struct {
 	ID        uuid.UUID      `json:"id"         gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
 	OrgID     uuid.UUID      `json:"org_id"     gorm:"type:uuid;not null;index"`
 	UserID    uuid.UUID      `json:"user_id"    gorm:"type:uuid;not null;index"`
-	Role      string         `json:"role"       gorm:"not null;default:'member'"`
 	JoinedAt  time.Time      `json:"joined_at"  gorm:"autoCreateTime"`
 	CreatedAt time.Time      `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt time.Time      `json:"updated_at" gorm:"autoUpdateTime"`

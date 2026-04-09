@@ -7,22 +7,18 @@ import (
 )
 
 // registerMemberRoutes mounts membership endpoints under /v1/iam/.
+// Membership is about belonging to an org — authorization is handled
+// separately via the roles/user_roles system.
 func registerMemberRoutes(m *Module, router *sdk.Router) {
 	router.GET("/members", "iam.members.read", m.listMembers)
 	router.POST("/members", "iam.members.manage", m.addMember)
 	router.DELETE("/members/:id", "iam.members.manage", m.removeMember)
-	router.PATCH("/members/:id", "iam.members.manage", m.updateMemberRole)
 }
 
 // ---- request DTOs ----------------------------------------------------------
 
 type addMemberRequest struct {
 	UserID uuid.UUID `json:"user_id" binding:"required"`
-	Role   string    `json:"role"    binding:"required,oneof=owner admin member"`
-}
-
-type updateMemberRoleRequest struct {
-	Role string `json:"role" binding:"required,oneof=owner admin member"`
 }
 
 // ---- handlers --------------------------------------------------------------
@@ -52,7 +48,6 @@ func (m *Module) addMember(c *gin.Context) {
 	member := OrgMember{
 		OrgID:  oid,
 		UserID: req.UserID,
-		Role:   req.Role,
 	}
 
 	if err := m.ctx.DB.Create(&member).Error; err != nil {
@@ -87,33 +82,4 @@ func (m *Module) removeMember(c *gin.Context) {
 	m.ctx.Bus.Publish(c.Request.Context(), "iam.member.removed", gin.H{"id": uri.ID, "org_id": oid})
 
 	sdk.NoContent(c)
-}
-
-func (m *Module) updateMemberRole(c *gin.Context) {
-	var uri resourceURI
-	if !sdk.BindURI(c, &uri) {
-		return
-	}
-	var req updateMemberRoleRequest
-	if !sdk.BindAndValidate(c, &req) {
-		return
-	}
-
-	oid := orgID(c)
-	var member OrgMember
-	if err := m.ctx.DB.Where("id = ? AND org_id = ?", uri.ID, oid).First(&member).Error; err != nil {
-		sdk.Error(c, sdk.NotFound("member", uri.ID))
-		return
-	}
-
-	if err := m.ctx.DB.Model(&member).Update("role", req.Role).Error; err != nil {
-		sdk.Error(c, sdk.BadRequest(err.Error()))
-		return
-	}
-
-	m.ctx.Audit.Log(c.Request.Context(), sdk.AuditEntry{
-		Action: sdk.AuditUpdate, Resource: "org_member", ResourceID: member.ID.String(),
-	})
-
-	sdk.OK(c, member)
 }

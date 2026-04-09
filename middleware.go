@@ -185,3 +185,54 @@ func (k *Kernel) checkPermission(required string) gin.HandlerFunc {
 		sdk.Error(c, sdk.Forbidden("insufficient permissions"))
 	}
 }
+
+// requirePlatformAdmin resolves the authenticated user's internal UUID,
+// loads their platform-org permissions, and gates admin route access.
+// Must be used after authenticate().
+func (k *Kernel) requirePlatformAdmin() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if k.platformOrgID == uuid.Nil {
+			sdk.Error(c, sdk.Forbidden("platform admin not configured"))
+			return
+		}
+
+		sub := c.GetString("user_id")
+		provider := c.GetString("auth_provider")
+		if sub == "" {
+			sdk.Error(c, sdk.Unauthorized("missing identity"))
+			return
+		}
+
+		// Resolve internal user UUID from IdP subject.
+		var user struct {
+			ID uuid.UUID
+		}
+		if err := k.db.Raw(
+			"SELECT id FROM module_iam.users WHERE external_id = ? AND provider = ? AND deleted_at IS NULL LIMIT 1",
+			sub, provider,
+		).Scan(&user).Error; err != nil || user.ID == uuid.Nil {
+			sdk.Error(c, sdk.Forbidden("user not found"))
+			return
+		}
+
+		// Store internal user UUID for downstream handlers.
+		c.Set("internal_user_id", user.ID)
+
+		// Load platform-level permissions via user_roles → role_permissions.
+		var keys []string
+		k.db.Raw(`
+			SELECT DISTINCT rp.permission_key
+			FROM module_iam.role_permissions rp
+			JOIN module_iam.user_roles ur ON ur.role_id = rp.role_id
+			WHERE ur.user_id = ? AND ur.org_id = ?
+		`, user.ID, k.platformOrgID).Pluck("permission_key", &keys)
+
+		if len(keys) == 0 {
+			sdk.Error(c, sdk.Forbidden("platform admin access required"))
+			return
+		}
+
+		c.Set("permissions", NewPermissionSet(keys))
+		c.Next()
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/spf13/cobra"
 
@@ -63,6 +64,9 @@ type Kernel struct {
 
 	// Custom CLI commands registered by the consumer.
 	customCommands []*cobra.Command
+
+	// Platform org ID (cached during Serve).
+	platformOrgID uuid.UUID
 
 	// Shutdown coordination.
 	shutdownOnce sync.Once
@@ -250,6 +254,33 @@ func (k *Kernel) Manifests() map[string]sdk.Manifest {
 	result := make(map[string]sdk.Manifest, len(k.manifests))
 	maps.Copy(result, k.manifests)
 	return result
+}
+
+// PlatformOrgID returns the cached platform organization ID.
+// Returns uuid.Nil if not yet loaded.
+func (k *Kernel) PlatformOrgID() uuid.UUID {
+	return k.platformOrgID
+}
+
+// loadPlatformOrg discovers and caches the platform org ID.
+// Called during Serve() after modules are initialized and migrations have run.
+func (k *Kernel) loadPlatformOrg() error {
+	var result struct {
+		ID uuid.UUID
+	}
+	err := k.db.Raw(
+		"SELECT id FROM module_iam.organizations WHERE status = 'platform' LIMIT 1",
+	).Scan(&result).Error
+	if err != nil {
+		return fmt.Errorf("load platform org: %w", err)
+	}
+	if result.ID == uuid.Nil {
+		k.logger.Warn("no platform org found — platform admin features disabled")
+		return nil
+	}
+	k.platformOrgID = result.ID
+	k.logger.Info("platform org loaded", "id", k.platformOrgID)
+	return nil
 }
 
 // ValidPermissionKey returns true if the given key is declared

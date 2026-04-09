@@ -30,6 +30,7 @@ func (k *Kernel) buildRootCommand() *cobra.Command {
 		k.migrateCommand(),
 		k.moduleCommand(),
 		k.orgCommand(),
+		k.platformCommand(),
 	)
 
 	// Add any custom commands registered by the consumer.
@@ -403,6 +404,172 @@ func (k *Kernel) orgListCommand() *cobra.Command {
 
 			for _, id := range orgIDs {
 				fmt.Fprintf(w, "%s\t%d\n", id, orgModules[id])
+			}
+			return w.Flush()
+		},
+	}
+}
+
+// ── platform ─────────────────────────────────────────────────────────────────
+
+func (k *Kernel) platformCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "platform",
+		Short: "Manage platform administrators",
+	}
+
+	cmd.AddCommand(
+		k.platformGrantCommand(),
+		k.platformRevokeCommand(),
+		k.platformListCommand(),
+	)
+
+	return cmd
+}
+
+func (k *Kernel) platformGrantCommand() *cobra.Command {
+	var roleName string
+
+	cmd := &cobra.Command{
+		Use:   "grant [user-id]",
+		Short: "Grant a platform role to a user",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := k.Boot(); err != nil {
+				return err
+			}
+
+			userID, err := uuid.Parse(args[0])
+			if err != nil {
+				return fmt.Errorf("invalid user ID: %w", err)
+			}
+
+			if err := k.loadPlatformOrg(); err != nil {
+				return err
+			}
+			if k.platformOrgID == uuid.Nil {
+				return fmt.Errorf("platform org not found — run 'kernel migrate' first")
+			}
+
+			// Find the role in the platform org.
+			var roleID uuid.UUID
+			if err := k.db.Raw(
+				"SELECT id FROM module_iam.roles WHERE org_id = ? AND name = ? AND deleted_at IS NULL",
+				k.platformOrgID, roleName,
+			).Scan(&roleID).Error; err != nil || roleID == uuid.Nil {
+				return fmt.Errorf("platform role %q not found", roleName)
+			}
+
+			// Ensure user is a member of the platform org.
+			k.db.Exec(`
+				INSERT INTO module_iam.org_members (org_id, user_id)
+				VALUES (?, ?)
+				ON CONFLICT (org_id, user_id) DO NOTHING
+			`, k.platformOrgID, userID)
+
+			// Assign the role.
+			result := k.db.Exec(`
+				INSERT INTO module_iam.user_roles (org_id, user_id, role_id)
+				VALUES (?, ?, ?)
+				ON CONFLICT (org_id, user_id, role_id) DO NOTHING
+			`, k.platformOrgID, userID, roleID)
+			if result.Error != nil {
+				return fmt.Errorf("grant role: %w", result.Error)
+			}
+
+			fmt.Printf("granted platform role %q to user %s\n", roleName, userID)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&roleName, "role", "platform_admin", "platform role name")
+	return cmd
+}
+
+func (k *Kernel) platformRevokeCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "revoke [user-id]",
+		Short: "Revoke all platform roles from a user",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := k.Boot(); err != nil {
+				return err
+			}
+
+			userID, err := uuid.Parse(args[0])
+			if err != nil {
+				return fmt.Errorf("invalid user ID: %w", err)
+			}
+
+			if err := k.loadPlatformOrg(); err != nil {
+				return err
+			}
+			if k.platformOrgID == uuid.Nil {
+				return fmt.Errorf("platform org not found — run 'kernel migrate' first")
+			}
+
+			// Remove all platform role assignments.
+			k.db.Exec(
+				"DELETE FROM module_iam.user_roles WHERE org_id = ? AND user_id = ?",
+				k.platformOrgID, userID,
+			)
+
+			// Remove platform org membership.
+			k.db.Exec(
+				"DELETE FROM module_iam.org_members WHERE org_id = ? AND user_id = ?",
+				k.platformOrgID, userID,
+			)
+
+			fmt.Printf("revoked all platform roles from user %s\n", userID)
+			return nil
+		},
+	}
+
+	return cmd
+}
+
+func (k *Kernel) platformListCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "List all platform administrators",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := k.Boot(); err != nil {
+				return err
+			}
+
+			if err := k.loadPlatformOrg(); err != nil {
+				return err
+			}
+			if k.platformOrgID == uuid.Nil {
+				return fmt.Errorf("platform org not found — run 'kernel migrate' first")
+			}
+
+			type platformAdmin struct {
+				UserID   string `gorm:"column:user_id"`
+				Name     string `gorm:"column:name"`
+				Email    string `gorm:"column:email"`
+				RoleName string `gorm:"column:role_name"`
+			}
+
+			var admins []platformAdmin
+			k.db.Raw(`
+				SELECT
+					u.id AS user_id,
+					u.name,
+					u.email,
+					r.name AS role_name
+				FROM module_iam.user_roles ur
+				JOIN module_iam.users u ON u.id = ur.user_id
+				JOIN module_iam.roles r ON r.id = ur.role_id
+				WHERE ur.org_id = ?
+				ORDER BY u.name, r.name
+			`, k.platformOrgID).Scan(&admins)
+
+			w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
+			fmt.Fprintln(w, "USER ID\tNAME\tEMAIL\tROLE")
+			fmt.Fprintln(w, "───────\t────\t─────\t────")
+			for _, a := range admins {
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", a.UserID, a.Name, a.Email, a.RoleName)
 			}
 			return w.Flush()
 		},

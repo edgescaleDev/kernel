@@ -262,9 +262,9 @@ func (m *Module) setUserRoles(c *gin.Context) {
 
 	oid := orgID(c)
 
-	// Verify the user exists in this org.
-	var user User
-	if err := m.ctx.DB.Where("id = ? AND org_id = ?", uri.ID, oid).First(&user).Error; err != nil {
+	// Verify the user is a member of this org.
+	var member OrgMember
+	if err := m.ctx.DB.Where("user_id = ? AND org_id = ?", uri.ID, oid).First(&member).Error; err != nil {
 		sdk.Error(c, sdk.NotFound("user", uri.ID))
 		return
 	}

@@ -52,12 +52,14 @@ type resourceURI struct {
 
 // ---- handlers: admin CRUD --------------------------------------------------
 
+// listUsers returns users that are members of the requesting org.
+// Queries through org_members JOIN since users are platform-level identities.
 func (m *Module) listUsers(c *gin.Context) {
 	oid := orgID(c)
 	page := sdk.ParsePageRequest(c)
 
 	result, err := sdk.Paginate[User](
-		m.ctx.DB.Where("org_id = ?", oid),
+		m.ctx.DB.Joins("JOIN module_iam.org_members ON module_iam.org_members.user_id = module_iam.users.id AND module_iam.org_members.org_id = ? AND module_iam.org_members.deleted_at IS NULL", oid),
 		page,
 	)
 	if err != nil {
@@ -67,6 +69,7 @@ func (m *Module) listUsers(c *gin.Context) {
 	sdk.List(c, result.Items, result.Meta)
 }
 
+// createUser creates a platform-level user and adds them as a member of the requesting org.
 func (m *Module) createUser(c *gin.Context) {
 	var req createUserRequest
 	if !sdk.BindAndValidate(c, &req) {
@@ -75,7 +78,6 @@ func (m *Module) createUser(c *gin.Context) {
 
 	oid := orgID(c)
 	user := User{
-		OrgID:      oid,
 		ExternalID: req.ExternalID,
 		Provider:   req.Provider,
 		Email:      req.Email,
@@ -86,8 +88,27 @@ func (m *Module) createUser(c *gin.Context) {
 		user.Provider = "platform"
 	}
 
-	if err := m.ctx.DB.Create(&user).Error; err != nil {
+	tx := m.ctx.DB.Begin()
+
+	if err := tx.Create(&user).Error; err != nil {
+		tx.Rollback()
 		sdk.Error(c, sdk.Conflict("user already exists or constraint violation"))
+		return
+	}
+
+	// Auto-create org membership for the requesting org.
+	member := OrgMember{
+		OrgID:  oid,
+		UserID: user.ID,
+	}
+	if err := tx.Create(&member).Error; err != nil {
+		tx.Rollback()
+		sdk.Error(c, sdk.Conflict("user is already a member of this organization"))
+		return
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		sdk.Error(c, sdk.Internal("failed to create user"))
 		return
 	}
 
@@ -99,6 +120,7 @@ func (m *Module) createUser(c *gin.Context) {
 	sdk.Created(c, user)
 }
 
+// getUser returns a user by ID, verifying membership in the requesting org.
 func (m *Module) getUser(c *gin.Context) {
 	var uri resourceURI
 	if !sdk.BindURI(c, &uri) {
@@ -107,13 +129,17 @@ func (m *Module) getUser(c *gin.Context) {
 
 	oid := orgID(c)
 	var user User
-	if err := m.ctx.DB.Where("id = ? AND org_id = ?", uri.ID, oid).First(&user).Error; err != nil {
+	if err := m.ctx.DB.
+		Joins("JOIN module_iam.org_members ON module_iam.org_members.user_id = module_iam.users.id AND module_iam.org_members.org_id = ? AND module_iam.org_members.deleted_at IS NULL", oid).
+		Where("module_iam.users.id = ?", uri.ID).
+		First(&user).Error; err != nil {
 		sdk.Error(c, sdk.NotFound("user", uri.ID))
 		return
 	}
 	sdk.OK(c, user)
 }
 
+// updateUser updates a user by ID, verifying membership in the requesting org.
 func (m *Module) updateUser(c *gin.Context) {
 	var uri resourceURI
 	if !sdk.BindURI(c, &uri) {
@@ -126,7 +152,10 @@ func (m *Module) updateUser(c *gin.Context) {
 
 	oid := orgID(c)
 	var user User
-	if err := m.ctx.DB.Where("id = ? AND org_id = ?", uri.ID, oid).First(&user).Error; err != nil {
+	if err := m.ctx.DB.
+		Joins("JOIN module_iam.org_members ON module_iam.org_members.user_id = module_iam.users.id AND module_iam.org_members.org_id = ? AND module_iam.org_members.deleted_at IS NULL", oid).
+		Where("module_iam.users.id = ?", uri.ID).
+		First(&user).Error; err != nil {
 		sdk.Error(c, sdk.NotFound("user", uri.ID))
 		return
 	}
@@ -169,6 +198,7 @@ func (m *Module) updateUser(c *gin.Context) {
 	sdk.OK(c, user)
 }
 
+// deleteUser soft-deletes a user, verifying membership in the requesting org.
 func (m *Module) deleteUser(c *gin.Context) {
 	var uri resourceURI
 	if !sdk.BindURI(c, &uri) {
@@ -176,7 +206,15 @@ func (m *Module) deleteUser(c *gin.Context) {
 	}
 
 	oid := orgID(c)
-	result := m.ctx.DB.Where("id = ? AND org_id = ?", uri.ID, oid).Delete(&User{})
+
+	// Verify membership before deleting.
+	var member OrgMember
+	if err := m.ctx.DB.Where("user_id = ? AND org_id = ?", uri.ID, oid).First(&member).Error; err != nil {
+		sdk.Error(c, sdk.NotFound("user", uri.ID))
+		return
+	}
+
+	result := m.ctx.DB.Where("id = ?", uri.ID).Delete(&User{})
 	if result.RowsAffected == 0 {
 		sdk.Error(c, sdk.NotFound("user", uri.ID))
 		return
@@ -194,6 +232,8 @@ func (m *Module) deleteUser(c *gin.Context) {
 // These query by external_id (IdP Subject) + provider, not by UUID.
 // The user_id in context is the IdP subject set by authenticate() middleware.
 
+// getMe returns the authenticated user's profile.
+// Looks up by IdP subject (platform-level), then verifies org membership.
 func (m *Module) getMe(c *gin.Context) {
 	sub := userSubject(c)
 	oid := orgID(c)
@@ -201,14 +241,23 @@ func (m *Module) getMe(c *gin.Context) {
 
 	var user User
 	if err := m.ctx.DB.Where(
-		"external_id = ? AND provider = ? AND org_id = ?", sub, provider, oid,
+		"external_id = ? AND provider = ?", sub, provider,
 	).First(&user).Error; err != nil {
 		sdk.Error(c, sdk.NotFound("user", sub))
 		return
 	}
+
+	// Verify org membership.
+	var member OrgMember
+	if err := m.ctx.DB.Where("user_id = ? AND org_id = ?", user.ID, oid).First(&member).Error; err != nil {
+		sdk.Error(c, sdk.Forbidden("user is not a member of this organization"))
+		return
+	}
+
 	sdk.OK(c, user)
 }
 
+// updateMe updates the authenticated user's own profile.
 func (m *Module) updateMe(c *gin.Context) {
 	sub := userSubject(c)
 	oid := orgID(c)
@@ -221,9 +270,16 @@ func (m *Module) updateMe(c *gin.Context) {
 
 	var user User
 	if err := m.ctx.DB.Where(
-		"external_id = ? AND provider = ? AND org_id = ?", sub, provider, oid,
+		"external_id = ? AND provider = ?", sub, provider,
 	).First(&user).Error; err != nil {
 		sdk.Error(c, sdk.NotFound("user", sub))
+		return
+	}
+
+	// Verify org membership.
+	var member OrgMember
+	if err := m.ctx.DB.Where("user_id = ? AND org_id = ?", user.ID, oid).First(&member).Error; err != nil {
+		sdk.Error(c, sdk.Forbidden("user is not a member of this organization"))
 		return
 	}
 

@@ -3,7 +3,7 @@
 CREATE TABLE IF NOT EXISTS module_iam.roles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     org_id UUID NOT NULL REFERENCES module_iam.organizations(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
+    name JSONB NOT NULL DEFAULT '{}',
     description TEXT NOT NULL DEFAULT '',
     is_system BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
