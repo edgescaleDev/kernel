@@ -201,17 +201,26 @@ func (m *Module) setRolePermissions(c *gin.Context) {
 
 	// Replace: delete existing, insert new.
 	tx := m.ctx.DB.Begin()
-	tx.Where("role_id = ?", role.ID).Delete(&RolePermission{})
+
+	if err := tx.Where("role_id = ?", role.ID).Delete(&RolePermission{}).Error; err != nil {
+		tx.Rollback()
+		sdk.Error(c, sdk.Internal("failed to clear existing permissions"))
+		return
+	}
 
 	for _, key := range req.Permissions {
-		tx.Create(&RolePermission{
+		if err := tx.Create(&RolePermission{
 			RoleID:        role.ID,
 			PermissionKey: key,
-		})
+		}).Error; err != nil {
+			tx.Rollback()
+			sdk.Error(c, sdk.BadRequest("failed to assign permission: "+key))
+			return
+		}
 	}
 
 	if err := tx.Commit().Error; err != nil {
-		sdk.Error(c, sdk.BadRequest(err.Error()))
+		sdk.Error(c, sdk.Internal("transaction failed"))
 		return
 	}
 
@@ -290,18 +299,27 @@ func (m *Module) setUserRoles(c *gin.Context) {
 
 	// Replace: delete existing, insert new.
 	tx := m.ctx.DB.Begin()
-	tx.Where("user_id = ? AND org_id = ?", uri.ID, oid).Delete(&UserRole{})
+
+	if err := tx.Where("user_id = ? AND org_id = ?", uri.ID, oid).Delete(&UserRole{}).Error; err != nil {
+		tx.Rollback()
+		sdk.Error(c, sdk.Internal("failed to clear existing role assignments"))
+		return
+	}
 
 	for _, roleID := range req.RoleIDs {
-		tx.Create(&UserRole{
+		if err := tx.Create(&UserRole{
 			OrgID:  oid,
 			UserID: uri.ID,
 			RoleID: roleID,
-		})
+		}).Error; err != nil {
+			tx.Rollback()
+			sdk.Error(c, sdk.BadRequest("failed to assign role: "+roleID.String()))
+			return
+		}
 	}
 
 	if err := tx.Commit().Error; err != nil {
-		sdk.Error(c, sdk.BadRequest(err.Error()))
+		sdk.Error(c, sdk.Internal("transaction failed"))
 		return
 	}
 
