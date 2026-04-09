@@ -81,9 +81,36 @@ func (m *Module) createInvitation(c *gin.Context) {
 		ExpiresAt: defaultExpiresAt(),
 	}
 
-	if err := m.ctx.DB.Create(&inv).Error; err != nil {
-		sdk.Error(c, sdk.Conflict("invitation already exists for this recipient"))
-		return
+	// Check for an existing invitation to allow re-sends.
+	var existing OrgInvitation
+	if err := m.ctx.DB.Where(
+		"org_id = ? AND channel = ? AND recipient = ?", oid, req.Channel, req.Recipient,
+	).First(&existing).Error; err == nil {
+		// Only allow re-send if the previous invitation is no longer active.
+		if existing.Status == "pending" {
+			sdk.Error(c, sdk.Conflict("a pending invitation already exists for this recipient"))
+			return
+		}
+		// Re-use the existing row: reset token, status, expiry, and role.
+		updates := map[string]any{
+			"token":      inv.Token,
+			"status":     "pending",
+			"role":       inv.Role,
+			"invited_by": inv.InvitedBy,
+			"expires_at": inv.ExpiresAt,
+		}
+		if err := m.ctx.DB.Model(&existing).Updates(updates).Error; err != nil {
+			sdk.Error(c, sdk.Internal("failed to re-send invitation"))
+			return
+		}
+		inv = existing
+		inv.Status = "pending"
+		inv.Role = req.Role
+	} else {
+		if err := m.ctx.DB.Create(&inv).Error; err != nil {
+			sdk.Error(c, sdk.Internal("failed to create invitation"))
+			return
+		}
 	}
 
 	m.ctx.Audit.Log(c.Request.Context(), sdk.AuditEntry{
