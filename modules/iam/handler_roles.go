@@ -261,13 +261,14 @@ func (m *Module) setRolePermissions(c *gin.Context) {
 		return
 	}
 
-	for _, key := range req.Permissions {
-		if err := tx.Create(&RolePermission{
-			RoleID:        role.ID,
-			PermissionKey: key,
-		}).Error; err != nil {
+	if len(req.Permissions) > 0 {
+		perms := make([]RolePermission, len(req.Permissions))
+		for i, key := range req.Permissions {
+			perms[i] = RolePermission{RoleID: role.ID, PermissionKey: key}
+		}
+		if err := tx.Create(&perms).Error; err != nil {
 			tx.Rollback()
-			sdk.Error(c, sdk.BadRequest("failed to assign permission: "+key))
+			sdk.Error(c, sdk.BadRequest("failed to assign permissions"))
 			return
 		}
 	}
@@ -284,15 +285,16 @@ func (m *Module) setRolePermissions(c *gin.Context) {
 	// Invalidate middleware cache for all users holding this role.
 	// Middleware keys are NOT namespaced, so use the raw client.
 	if m.ctx.Redis.Client() != nil {
-		var users []User
-		m.ctx.DB.Joins("JOIN module_iam.user_roles ur ON ur.user_id = users.id").
+		var externalIDs []string
+		m.ctx.DB.Model(&User{}).
+			Joins("JOIN module_iam.user_roles ur ON ur.user_id = users.id").
 			Where("ur.role_id = ?", role.ID).
-			Find(&users)
+			Pluck("external_id", &externalIDs)
 
-		if len(users) > 0 {
-			keys := make([]string, len(users))
-			for i, u := range users {
-				keys[i] = "middleware_user:" + u.ExternalID + ":" + oid.String()
+		if len(externalIDs) > 0 {
+			keys := make([]string, len(externalIDs))
+			for i, eid := range externalIDs {
+				keys[i] = "middleware_user:" + eid + ":" + oid.String()
 			}
 			m.ctx.Redis.Client().Del(c.Request.Context(), keys...)
 		}
@@ -374,14 +376,14 @@ func (m *Module) setUserRoles(c *gin.Context) {
 		return
 	}
 
-	for _, roleID := range req.RoleIDs {
-		if err := tx.Create(&UserRole{
-			OrgID:  oid,
-			UserID: uri.ID,
-			RoleID: roleID,
-		}).Error; err != nil {
+	if len(req.RoleIDs) > 0 {
+		roles := make([]UserRole, len(req.RoleIDs))
+		for i, roleID := range req.RoleIDs {
+			roles[i] = UserRole{OrgID: oid, UserID: uri.ID, RoleID: roleID}
+		}
+		if err := tx.Create(&roles).Error; err != nil {
 			tx.Rollback()
-			sdk.Error(c, sdk.BadRequest("failed to assign role: "+roleID.String()))
+			sdk.Error(c, sdk.BadRequest("failed to assign roles"))
 			return
 		}
 	}

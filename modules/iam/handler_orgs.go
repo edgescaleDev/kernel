@@ -1,6 +1,8 @@
 package iam
 
 import (
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"go.edgescale.dev/kernel/sdk"
 )
@@ -8,8 +10,8 @@ import (
 // registerOrgRoutes mounts organization-related endpoints under /v1/iam/.
 func registerOrgRoutes(m *Module, router *sdk.Router) {
 	router.GET("/orgs", sdk.Self, m.listOrgs)
-	router.POST("/orgs", "iam.orgs.manage", m.createOrg)
-	router.POST("/orgs/register", sdk.Self, m.registerOrg)
+	router.POST("/orgs", "iam.orgs.manage", sdk.RateLimit("create_org", 5, time.Hour, m.ctx.Redis.Client()), m.createOrg)
+	router.POST("/orgs/register", sdk.Self, sdk.RateLimit("register_org", 5, time.Hour, m.ctx.Redis.Client()), m.registerOrg)
 	router.GET("/orgs/:id", "iam.orgs.read", m.getOrg)
 	router.PATCH("/orgs/:id", "iam.orgs.manage", m.updateOrg)
 	router.DELETE("/orgs/:id", "iam.orgs.manage", m.deleteOrg)

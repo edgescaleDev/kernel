@@ -300,16 +300,10 @@ func (m *Module) getMe(c *gin.Context) {
 	provider := c.GetString("auth_provider")
 
 	var user User
-	if err := m.ctx.DB.Where(
-		"external_id = ? AND provider = ?", sub, provider,
-	).First(&user).Error; err != nil {
-		sdk.Error(c, sdk.NotFound("user", sub))
-		return
-	}
-
-	// Verify org membership.
-	var member OrgMember
-	if err := m.ctx.DB.Where("user_id = ? AND org_id = ?", user.ID, oid).First(&member).Error; err != nil {
+	if err := m.ctx.DB.
+		Joins("JOIN module_iam.org_members ON org_members.user_id = users.id AND org_members.org_id = ? AND org_members.deleted_at IS NULL", oid).
+		Where("users.external_id = ? AND users.provider = ?", sub, provider).
+		First(&user).Error; err != nil {
 		sdk.Error(c, sdk.Forbidden("user is not a member of this organization"))
 		return
 	}
@@ -329,16 +323,10 @@ func (m *Module) updateMe(c *gin.Context) {
 	}
 
 	var user User
-	if err := m.ctx.DB.Where(
-		"external_id = ? AND provider = ?", sub, provider,
-	).First(&user).Error; err != nil {
-		sdk.Error(c, sdk.NotFound("user", sub))
-		return
-	}
-
-	// Verify org membership.
-	var member OrgMember
-	if err := m.ctx.DB.Where("user_id = ? AND org_id = ?", user.ID, oid).First(&member).Error; err != nil {
+	if err := m.ctx.DB.
+		Joins("JOIN module_iam.org_members ON org_members.user_id = users.id AND org_members.org_id = ? AND org_members.deleted_at IS NULL", oid).
+		Where("users.external_id = ? AND users.provider = ?", sub, provider).
+		First(&user).Error; err != nil {
 		sdk.Error(c, sdk.Forbidden("user is not a member of this organization"))
 		return
 	}

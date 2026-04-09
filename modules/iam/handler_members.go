@@ -48,6 +48,15 @@ func (m *Module) addMember(c *gin.Context) {
 	}
 
 	oid := orgID(c)
+
+	// Verify that the user exists before creating membership.
+	var userExists int64
+	m.ctx.DB.Model(&User{}).Where("id = ?", req.UserID).Count(&userExists)
+	if userExists == 0 {
+		sdk.Error(c, sdk.NotFound("user", req.UserID))
+		return
+	}
+
 	member := OrgMember{
 		OrgID:    oid,
 		UserID:   req.UserID,
