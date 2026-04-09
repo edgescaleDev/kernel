@@ -199,6 +199,16 @@ func (m *Module) setRolePermissions(c *gin.Context) {
 		return
 	}
 
+	// Validate all permission keys against registered module manifests.
+	if m.ctx.ValidPermissionKey != nil {
+		for _, key := range req.Permissions {
+			if key != "*" && !m.ctx.ValidPermissionKey(key) {
+				sdk.Error(c, sdk.BadRequest("unknown permission: "+key))
+				return
+			}
+		}
+	}
+
 	// Replace: delete existing, insert new.
 	tx := m.ctx.DB.Begin()
 

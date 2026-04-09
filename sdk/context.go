@@ -56,6 +56,12 @@ type Context struct {
 
 	// ServiceID is the identifier of the service this context belongs to.
 	ServiceID string
+
+	// ValidPermissionKey returns true if the given key is declared
+	// by any registered module manifest. Used to validate permission
+	// keys at write-time (e.g., when assigning permissions to roles).
+	// The wildcard key "*" is always considered valid.
+	ValidPermissionKey func(key string) bool
 }
 
 // Reader returns a type-safe cross-service reader.

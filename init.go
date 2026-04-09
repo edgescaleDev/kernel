@@ -50,16 +50,17 @@ func (k *Kernel) buildContext(manifest sdk.Manifest) sdk.Context {
 	logger := slog.Default().With("module", moduleID)
 
 	ctx := sdk.Context{
-		PublicDB:         k.db,
-		Logger:           logger,
-		Bus:              k.bus,
-		Tasks:            k.taskExecutor,
-		Search:           k.searchEngine,
-		Hooks:            k.hooks,
-		IdentityProvider: k.identityProvider,
-		Audit:            newAuditLogger(k.db, moduleID),
-		Outbox:           &outboxWriter{db: k.db, moduleID: moduleID},
-		ServiceID:        moduleID,
+		PublicDB:           k.db,
+		Logger:             logger,
+		Bus:                k.bus,
+		Tasks:              k.taskExecutor,
+		Search:             k.searchEngine,
+		Hooks:              k.hooks,
+		IdentityProvider:   k.identityProvider,
+		Audit:              newAuditLogger(k.db, moduleID),
+		Outbox:             &outboxWriter{db: k.db, moduleID: moduleID},
+		ServiceID:          moduleID,
+		ValidPermissionKey: k.ValidPermissionKey,
 	}
 	ctx.SetReaders(k.readers)
 
