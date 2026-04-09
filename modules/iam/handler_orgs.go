@@ -30,9 +30,18 @@ type updateOrgRequest struct {
 // ---- handlers --------------------------------------------------------------
 
 func (m *Module) listOrgs(c *gin.Context) {
+	sub := userSubject(c)
+	provider := c.GetString("auth_provider")
 	page := sdk.ParsePageRequest(c)
 
-	result, err := sdk.Paginate[Organization](m.ctx.DB.Where("status != 'platform'"), page)
+	result, err := sdk.Paginate[Organization](
+		m.ctx.DB.
+			Joins("JOIN org_members ON org_members.org_id = organizations.id AND org_members.deleted_at IS NULL").
+			Joins("JOIN users ON users.id = org_members.user_id AND users.deleted_at IS NULL").
+			Where("users.external_id = ? AND users.provider = ?", sub, provider).
+			Where("organizations.status != 'platform'"),
+		page,
+	)
 	if err != nil {
 		sdk.Error(c, sdk.BadRequest(err.Error()))
 		return
