@@ -24,7 +24,7 @@ type createOrgRequest struct {
 type updateOrgRequest struct {
 	Name    *sdk.TranslatableField `json:"name"`
 	LogoURL *string                `json:"logo_url"`
-	Status  *string                `json:"status"`
+	Status  *string                `json:"status" binding:"omitempty,oneof=active suspended"`
 }
 
 // ---- handlers --------------------------------------------------------------
