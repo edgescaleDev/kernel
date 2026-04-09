@@ -114,12 +114,12 @@ func (m *Module) removeMember(c *gin.Context) {
 	m.ctx.Bus.Publish(c.Request.Context(), "iam.member.removed", gin.H{"id": uri.ID, "org_id": oid, "user_id": member.UserID})
 
 	if m.ctx.Redis.Client() != nil {
-		m.ctx.Redis.Del(c.Request.Context(), fmt.Sprintf("user_org_membership:%s:%s", member.UserID, oid))
-
+		keys := []string{fmt.Sprintf("user_org_membership:%s:%s", member.UserID, oid)}
 		var user User
 		if m.ctx.DB.Unscoped().Where("id = ?", member.UserID).First(&user).Error == nil {
-			m.ctx.Redis.Del(c.Request.Context(), "middleware_user:"+user.ExternalID+":"+oid.String())
+			keys = append(keys, "middleware_user:"+user.ExternalID+":"+oid.String())
 		}
+		m.ctx.Redis.Del(c.Request.Context(), keys...)
 	}
 
 	sdk.NoContent(c)

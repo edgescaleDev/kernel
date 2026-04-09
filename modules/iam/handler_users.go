@@ -1,7 +1,6 @@
 package iam
 
 import (
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -135,31 +134,17 @@ func (m *Module) getUser(c *gin.Context) {
 	oid := orgID(c)
 	cacheKey := fmt.Sprintf("user_org_membership:%s:%s", uri.ID, oid)
 
-	// Attempt to retrieve from cache
-	if m.ctx.Redis.Client() != nil {
-		if cached, err := m.ctx.Redis.Get(c.Request.Context(), cacheKey).Bytes(); err == nil {
-			var user User
-			if json.Unmarshal(cached, &user) == nil {
-				sdk.OK(c, user)
-				return
-			}
-		}
-	}
-
-	var user User
-	if err := m.ctx.DB.
-		Joins("JOIN org_members ON org_members.user_id = users.id AND org_members.org_id = ? AND org_members.deleted_at IS NULL", oid).
-		Where("users.id = ?", uri.ID).
-		First(&user).Error; err != nil {
+	user, err := sdk.Cache(c.Request.Context(), m.ctx.Redis, cacheKey, m.cacheTTL, func() (User, error) {
+		var u User
+		err := m.ctx.DB.
+			Joins("JOIN org_members ON org_members.user_id = users.id AND org_members.org_id = ? AND org_members.deleted_at IS NULL", oid).
+			Where("users.id = ?", uri.ID).
+			First(&u).Error
+		return u, err
+	})
+	if err != nil {
 		sdk.Error(c, sdk.NotFound("user", uri.ID))
 		return
-	}
-
-	// Store in cache
-	if m.ctx.Redis.Client() != nil && m.cacheTTL > 0 {
-		if data, err := json.Marshal(&user); err == nil {
-			m.ctx.Redis.Set(c.Request.Context(), cacheKey, data, m.cacheTTL)
-		}
 	}
 
 	sdk.OK(c, user)
@@ -223,8 +208,10 @@ func (m *Module) updateUser(c *gin.Context) {
 
 	// Invalidate caches
 	if m.ctx.Redis.Client() != nil {
-		m.ctx.Redis.Del(c.Request.Context(), fmt.Sprintf("user_org_membership:%s:%s", uri.ID, oid))
-		m.ctx.Redis.Del(c.Request.Context(), "middleware_user:"+user.ExternalID+":"+oid.String())
+		m.ctx.Redis.Del(c.Request.Context(),
+			fmt.Sprintf("user_org_membership:%s:%s", uri.ID, oid),
+			"middleware_user:"+user.ExternalID+":"+oid.String(),
+		)
 	}
 
 	sdk.OK(c, user)
@@ -276,12 +263,12 @@ func (m *Module) deleteUser(c *gin.Context) {
 
 	// Invalidate caches
 	if m.ctx.Redis.Client() != nil {
-		m.ctx.Redis.Del(c.Request.Context(), fmt.Sprintf("user_org_membership:%s:%s", uri.ID, oid))
-
+		keys := []string{fmt.Sprintf("user_org_membership:%s:%s", uri.ID, oid)}
 		var user User
 		if m.ctx.DB.Where("id = ?", uri.ID).First(&user).Error == nil {
-			m.ctx.Redis.Del(c.Request.Context(), "middleware_user:"+user.ExternalID+":"+oid.String())
+			keys = append(keys, "middleware_user:"+user.ExternalID+":"+oid.String())
 		}
+		m.ctx.Redis.Del(c.Request.Context(), keys...)
 	}
 
 	sdk.NoContent(c)
@@ -370,8 +357,10 @@ func (m *Module) updateMe(c *gin.Context) {
 
 	// Invalidate caches
 	if m.ctx.Redis.Client() != nil {
-		m.ctx.Redis.Del(c.Request.Context(), fmt.Sprintf("user_org_membership:%s:%s", user.ID, oid))
-		m.ctx.Redis.Del(c.Request.Context(), "middleware_user:"+user.ExternalID+":"+oid.String())
+		m.ctx.Redis.Del(c.Request.Context(),
+			fmt.Sprintf("user_org_membership:%s:%s", user.ID, oid),
+			"middleware_user:"+user.ExternalID+":"+oid.String(),
+		)
 	}
 
 	sdk.OK(c, user)
