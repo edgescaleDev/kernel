@@ -58,6 +58,7 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Subject: "iam.role.deleted", Description: "Fired when a role is deleted"},
 			{Subject: "iam.role.permissions.updated", Description: "Fired when a role's permissions are updated"},
 			{Subject: "iam.user_roles.updated", Description: "Fired when a user's roles are updated"},
+			{Subject: "iam.org.created", Description: "Fired when an organization is created"},
 			{Subject: "iam.org.deleted", Description: "Fired when an organization is soft-deleted"},
 		},
 		Config: []sdk.ConfigFieldDef{
