@@ -18,6 +18,18 @@ import (
 // limit  — maximum number of requests allowed within the window.
 // window — the fixed window duration.
 func RateLimit(key string, limit int, window time.Duration, rdb redis.Cmdable) gin.HandlerFunc {
+	// Lua script atomically increments and sets the TTL in a single round-trip.
+	// If the key is new (count == 1), it sets the expiry. This prevents the
+	// scenario where INCR succeeds but a separate EXPIRE call fails, leaving
+	// the key with no TTL and permanently rate-limiting the IP.
+	script := redis.NewScript(`
+		local count = redis.call("INCR", KEYS[1])
+		if count == 1 then
+			redis.call("EXPIRE", KEYS[1], ARGV[1])
+		end
+		return count
+	`)
+
 	return func(c *gin.Context) {
 		if rdb == nil {
 			c.Next()
@@ -26,21 +38,17 @@ func RateLimit(key string, limit int, window time.Duration, rdb redis.Cmdable) g
 
 		ip := c.ClientIP()
 		redisKey := fmt.Sprintf("ratelimit:%s:%s", key, ip)
+		windowSec := int(window.Seconds())
 
-		count, err := rdb.Incr(c.Request.Context(), redisKey).Result()
+		count, err := script.Run(c.Request.Context(), rdb, []string{redisKey}, windowSec).Int64()
 		if err != nil {
 			// Fail-open: allow the request if Redis is unreachable.
 			c.Next()
 			return
 		}
 
-		// Set expiry only on the first increment to establish the window.
-		if count == 1 {
-			rdb.Expire(c.Request.Context(), redisKey, window)
-		}
-
 		if count > int64(limit) {
-			c.Header("Retry-After", fmt.Sprintf("%d", int(window.Seconds())))
+			c.Header("Retry-After", fmt.Sprintf("%d", windowSec))
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, Envelope{
 				Success: false,
 				Errors:  []APIError{{Code: "RATE_LIMITED", Message: "too many requests, please try again later"}},
