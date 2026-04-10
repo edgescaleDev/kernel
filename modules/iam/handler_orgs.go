@@ -11,7 +11,7 @@ import (
 func registerOrgRoutes(m *Module, router *sdk.Router) {
 	router.GET("/orgs", sdk.Self, m.listOrgs)
 	router.POST("/orgs", "iam.orgs.manage", sdk.RateLimit("create_org", 5, time.Hour, m.ctx.Redis.Client()), m.createOrg)
-	router.POST("/orgs/register", sdk.Self, sdk.RateLimit("register_org", 5, time.Hour, m.ctx.Redis.Client()), m.registerOrg)
+	router.POST("/orgs/register", sdk.Self, sdk.RateLimit("register_org", 5, time.Hour, m.ctx.Redis.Client()), m.createOrg)
 	router.GET("/orgs/:id", "iam.orgs.read", m.getOrg)
 	router.PATCH("/orgs/:id", "iam.orgs.manage", m.updateOrg)
 	router.DELETE("/orgs/:id", "iam.orgs.manage", m.deleteOrg)
@@ -64,44 +64,6 @@ func (m *Module) createOrg(c *gin.Context) {
 	var creator User
 	if err := m.ctx.DB.Where("external_id = ? AND provider = ?", sub, provider).First(&creator).Error; err != nil {
 		sdk.Error(c, sdk.Unauthorized("creating user not found"))
-		return
-	}
-
-	org := Organization{
-		Name: req.Name,
-		Slug: req.Slug,
-	}
-
-	tx := m.ctx.DB.Begin()
-	if err := provisionOrgForUser(tx, &org, creator.ID); err != nil {
-		tx.Rollback()
-		sdk.Error(c, sdk.Conflict("organization with this slug already exists"))
-		return
-	}
-	if err := tx.Commit().Error; err != nil {
-		sdk.Error(c, sdk.Internal("failed to create organization"))
-		return
-	}
-
-	m.ctx.Audit.Log(c.Request.Context(), sdk.AuditEntry{
-		Action: sdk.AuditCreate, Resource: "organization", ResourceID: org.ID.String(),
-	})
-	m.ctx.Bus.Publish(c.Request.Context(), "iam.org.created", org)
-
-	sdk.Created(c, org)
-}
-
-func (m *Module) registerOrg(c *gin.Context) {
-	var req createOrgRequest
-	if !sdk.BindAndValidate(c, &req) {
-		return
-	}
-
-	sub := userSubject(c)
-	provider := c.GetString("auth_provider")
-	var creator User
-	if err := m.ctx.DB.Where("external_id = ? AND provider = ?", sub, provider).First(&creator).Error; err != nil {
-		sdk.Error(c, sdk.Unauthorized("user not found"))
 		return
 	}
 

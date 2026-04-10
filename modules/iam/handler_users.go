@@ -22,6 +22,7 @@ func registerUserRoutes(m *Module, router *sdk.Router) {
 	// Self-service profile — queries by IdP subject, not UUID.
 	router.GET("/me", sdk.Self, m.getMe)
 	router.PATCH("/me", sdk.Self, m.updateMe)
+	router.DELETE("/me", sdk.Self, m.eraseMe)
 }
 
 // ---- request / response DTOs -----------------------------------------------
@@ -237,61 +238,9 @@ func (m *Module) deleteUser(c *gin.Context) {
 
 	oid := orgID(c)
 
-	// Prevent self-removal — admins cannot remove themselves.
-	sub := userSubject(c)
-	provider := c.GetString("auth_provider")
-	var caller User
-	if m.ctx.DB.Where("external_id = ? AND provider = ?", sub, provider).First(&caller).Error == nil {
-		if caller.ID == uri.ID {
-			sdk.Error(c, sdk.BadRequest("cannot remove yourself from the organization"))
-			return
-		}
+	if err := m.removeMembership(c, uri.ID, oid); err != nil {
+		return // error already sent to client
 	}
-
-	// Verify membership before deleting.
-	var member OrgMember
-	if err := m.ctx.DB.Where("user_id = ? AND org_id = ?", uri.ID, oid).First(&member).Error; err != nil {
-		sdk.Error(c, sdk.NotFound("user", uri.ID))
-		return
-	}
-
-	// Use a transaction to atomically remove membership and associated roles.
-	tx := m.ctx.DB.Begin()
-
-	if err := tx.Delete(&member).Error; err != nil {
-		tx.Rollback()
-		sdk.Error(c, sdk.Internal("failed to remove member"))
-		return
-	}
-
-	// Clean up any roles assigned to this user within this organization.
-	if err := tx.Where("user_id = ? AND org_id = ?", uri.ID, oid).Delete(&UserRole{}).Error; err != nil {
-		tx.Rollback()
-		sdk.Error(c, sdk.Internal("failed to clean up member roles"))
-		return
-	}
-
-	if err := tx.Commit().Error; err != nil {
-		sdk.Error(c, sdk.Internal("transaction failed"))
-		return
-	}
-
-	m.ctx.Audit.Log(c.Request.Context(), sdk.AuditEntry{
-		Action: sdk.AuditDelete, Resource: "org_member", ResourceID: member.ID.String(),
-	})
-	m.ctx.Bus.Publish(c.Request.Context(), "iam.member.removed", gin.H{"id": member.ID, "org_id": oid, "user_id": uri.ID})
-
-	// Invalidate caches: module-owned keys use namespaced Redis,
-	// middleware keys use the raw client (no prefix).
-	if m.ctx.Redis.Client() != nil {
-		ctx := c.Request.Context()
-		m.ctx.Redis.Del(ctx, fmt.Sprintf("user_org_membership:%s:%s", uri.ID, oid))
-		var user User
-		if m.ctx.DB.Where("id = ?", uri.ID).First(&user).Error == nil {
-			m.ctx.Redis.Client().Del(ctx, "middleware_user:"+user.ExternalID+":"+oid.String())
-		}
-	}
-
 	sdk.NoContent(c)
 }
 
@@ -375,4 +324,66 @@ func (m *Module) updateMe(c *gin.Context) {
 	}
 
 	sdk.OK(c, user)
+}
+
+// eraseMe handles the GDPR right-to-erasure for the authenticated user.
+// Anonymises PII, soft-deletes the user record, and removes all org memberships.
+func (m *Module) eraseMe(c *gin.Context) {
+	sub := userSubject(c)
+	provider := c.GetString("auth_provider")
+
+	var user User
+	if err := m.ctx.DB.Where("external_id = ? AND provider = ?", sub, provider).First(&user).Error; err != nil {
+		sdk.Error(c, sdk.NotFound("user", sub))
+		return
+	}
+
+	// Anonymise PII.
+	user.ErasePersonalData()
+
+	tx := m.ctx.DB.Begin()
+
+	// Save anonymised data.
+	if err := tx.Save(&user).Error; err != nil {
+		tx.Rollback()
+		sdk.Error(c, sdk.Internal("failed to erase personal data"))
+		return
+	}
+
+	// Soft-delete the user.
+	if err := tx.Delete(&user).Error; err != nil {
+		tx.Rollback()
+		sdk.Error(c, sdk.Internal("failed to delete user"))
+		return
+	}
+
+	// Remove all org memberships and role assignments.
+	if err := tx.Where("user_id = ?", user.ID).Delete(&OrgMember{}).Error; err != nil {
+		tx.Rollback()
+		sdk.Error(c, sdk.Internal("failed to remove memberships"))
+		return
+	}
+	if err := tx.Where("user_id = ?", user.ID).Delete(&UserRole{}).Error; err != nil {
+		tx.Rollback()
+		sdk.Error(c, sdk.Internal("failed to remove role assignments"))
+		return
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		sdk.Error(c, sdk.Internal("failed to complete erasure"))
+		return
+	}
+
+	m.ctx.Audit.Log(c.Request.Context(), sdk.AuditEntry{
+		Action: sdk.AuditDelete, Resource: "user", ResourceID: user.ID.String(),
+	})
+	m.ctx.Bus.Publish(c.Request.Context(), "iam.user.erased", gin.H{"id": user.ID})
+
+	// Invalidate all caches for this user.
+	if m.ctx.Redis.Client() != nil {
+		ctx := c.Request.Context()
+		m.ctx.Redis.Client().Del(ctx, "middleware_user:"+user.ExternalID+":*")
+	}
+
+	sdk.NoContent(c)
 }

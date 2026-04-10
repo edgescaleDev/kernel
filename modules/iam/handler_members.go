@@ -88,59 +88,75 @@ func (m *Module) removeMember(c *gin.Context) {
 
 	oid := orgID(c)
 
-	// Fetch the member first to get the associated UserID for cache invalidation.
+	// Fetch the member first to get the associated UserID.
 	var member OrgMember
 	if err := m.ctx.DB.Where("id = ? AND org_id = ?", uri.ID, oid).First(&member).Error; err != nil {
 		sdk.Error(c, sdk.NotFound("member", uri.ID))
 		return
 	}
 
+	if err := m.removeMembership(c, member.UserID, oid); err != nil {
+		return // error already sent to client
+	}
+	sdk.NoContent(c)
+}
+
+// removeMembership is the shared core for both deleteUser (by user_id) and
+// removeMember (by member_id). It handles self-removal prevention, transactional
+// cleanup of membership + user_roles, audit, events, and cache invalidation.
+// Returns an error if the operation failed (response already sent to client).
+func (m *Module) removeMembership(c *gin.Context, userID, oid uuid.UUID) error {
 	// Prevent self-removal.
 	sub := userSubject(c)
 	provider := c.GetString("auth_provider")
 	var caller User
 	if m.ctx.DB.Where("external_id = ? AND provider = ?", sub, provider).First(&caller).Error == nil {
-		if caller.ID == member.UserID {
+		if caller.ID == userID {
 			sdk.Error(c, sdk.BadRequest("cannot remove yourself from the organization"))
-			return
+			return fmt.Errorf("self-removal")
 		}
 	}
 
-	// Use a transaction to atomically remove membership and associated roles.
-	tx := m.ctx.DB.Begin()
+	// Lookup the membership.
+	var member OrgMember
+	if err := m.ctx.DB.Where("user_id = ? AND org_id = ?", userID, oid).First(&member).Error; err != nil {
+		sdk.Error(c, sdk.NotFound("user", userID))
+		return err
+	}
 
+	// Transactionally remove membership and associated roles.
+	tx := m.ctx.DB.Begin()
 	if err := tx.Delete(&member).Error; err != nil {
 		tx.Rollback()
 		sdk.Error(c, sdk.Internal("failed to remove member"))
-		return
+		return err
 	}
-
-	// Clean up any roles assigned to this user within this organization
-	// to prevent them from silently regaining administrative permissions if re-invited.
-	if err := tx.Where("user_id = ? AND org_id = ?", member.UserID, oid).Delete(&UserRole{}).Error; err != nil {
+	if err := tx.Where("user_id = ? AND org_id = ?", userID, oid).Delete(&UserRole{}).Error; err != nil {
 		tx.Rollback()
 		sdk.Error(c, sdk.Internal("failed to clean up member roles"))
-		return
+		return err
 	}
-
 	if err := tx.Commit().Error; err != nil {
 		sdk.Error(c, sdk.Internal("transaction failed"))
-		return
+		return err
 	}
 
 	m.ctx.Audit.Log(c.Request.Context(), sdk.AuditEntry{
-		Action: sdk.AuditDelete, Resource: "org_member", ResourceID: uri.ID.String(),
+		Action: sdk.AuditDelete, Resource: "org_member", ResourceID: member.ID.String(),
 	})
-	m.ctx.Bus.Publish(c.Request.Context(), "iam.member.removed", gin.H{"id": uri.ID, "org_id": oid, "user_id": member.UserID})
+	m.ctx.Bus.Publish(c.Request.Context(), "iam.member.removed", gin.H{
+		"id": member.ID, "org_id": oid, "user_id": userID,
+	})
 
+	// Cache invalidation.
 	if m.ctx.Redis.Client() != nil {
 		ctx := c.Request.Context()
-		m.ctx.Redis.Del(ctx, fmt.Sprintf("user_org_membership:%s:%s", member.UserID, oid))
+		m.ctx.Redis.Del(ctx, fmt.Sprintf("user_org_membership:%s:%s", userID, oid))
 		var user User
-		if m.ctx.DB.Unscoped().Where("id = ?", member.UserID).First(&user).Error == nil {
+		if m.ctx.DB.Where("id = ?", userID).First(&user).Error == nil {
 			m.ctx.Redis.Client().Del(ctx, "middleware_user:"+user.ExternalID+":"+oid.String())
 		}
 	}
 
-	sdk.NoContent(c)
+	return nil
 }
