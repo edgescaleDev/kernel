@@ -100,12 +100,24 @@ func (k *Kernel) handleListModules(c *gin.Context) {
 
 // handleActiveModules returns modules that are active for the requesting org.
 // GET /v1/modules/active
-// TODO: Once the registry module is built, filter by module_activations table.
-// For now, returns all core modules plus all registered modules.
+// Core modules are always included. Feature modules are filtered by the
+// module_activations table via IsModuleActive (Redis cached).
 func (k *Kernel) handleActiveModules(c *gin.Context) {
+	orgIDVal, hasOrg := c.Get("org_id")
+
 	modules := make([]moduleInfo, 0, len(k.modules))
 	for _, m := range k.Modules() {
-		modules = append(modules, toModuleInfo(m.Manifest()))
+		manifest := m.Manifest()
+
+		// If we have an org context, filter by activation status.
+		if hasOrg {
+			orgID, _ := orgIDVal.(string)
+			if !k.IsModuleActive(manifest.ID, orgID) {
+				continue
+			}
+		}
+
+		modules = append(modules, toModuleInfo(manifest))
 	}
 
 	c.JSON(http.StatusOK, sdk.Envelope{
