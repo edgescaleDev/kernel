@@ -24,4 +24,4 @@ WHERE id = platform_org_id;
 END IF;
 END $$;
 -- Remove the partial unique index.
-DROP INDEX IF EXISTS module_iam.uq_organizations_platform;
+DROP INDEX IF EXISTS public.uq_organizations_platform;
