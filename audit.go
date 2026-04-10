@@ -21,20 +21,20 @@ type auditLogger struct {
 
 // AuditEvent maps to the public.audit_events table.
 type AuditEvent struct {
-	ID         uint64    `gorm:"primaryKey;autoIncrement"`
-	Timestamp  time.Time `gorm:"column:timestamp;autoCreateTime"`
+	ID         uint64     `gorm:"primaryKey;autoIncrement"`
+	Timestamp  time.Time  `gorm:"column:timestamp;autoCreateTime"`
 	UserID     *uuid.UUID `gorm:"column:user_id;type:uuid"`
 	OrgID      *uuid.UUID `gorm:"column:org_id;type:uuid"`
-	ModuleID   string    `gorm:"column:module_id;not null"`
-	Action     string    `gorm:"column:action;not null"`
-	Resource   string    `gorm:"column:resource;not null"`
-	ResourceID string    `gorm:"column:resource_id"`
-	Changes    JSON      `gorm:"column:changes;type:jsonb"`
-	IPAddress  string    `gorm:"column:ip_address"`
-	UserAgent  string    `gorm:"column:user_agent"`
-	RequestID  string    `gorm:"column:request_id"`
-	PrevHash   string    `gorm:"column:prev_hash"`
-	Hash       string    `gorm:"column:hash;not null"`
+	ModuleID   string     `gorm:"column:module_id;not null"`
+	Action     string     `gorm:"column:action;not null"`
+	Resource   string     `gorm:"column:resource;not null"`
+	ResourceID string     `gorm:"column:resource_id"`
+	Changes    JSON       `gorm:"column:changes;type:jsonb"`
+	IPAddress  string     `gorm:"column:ip_address"`
+	UserAgent  string     `gorm:"column:user_agent"`
+	RequestID  string     `gorm:"column:request_id"`
+	PrevHash   string     `gorm:"column:prev_hash"`
+	Hash       string     `gorm:"column:hash;not null"`
 }
 
 func (AuditEvent) TableName() string {
@@ -76,31 +76,37 @@ func (a *auditLogger) Log(ctx context.Context, entry sdk.AuditEntry) error {
 		changesJSON = JSON(data)
 	}
 
-	// Get the previous hash for chain integrity.
-	var prevHash string
-	var lastEvent AuditEvent
-	if err := a.db.Order("id DESC").Limit(1).Find(&lastEvent).Error; err == nil && lastEvent.ID > 0 {
-		prevHash = lastEvent.Hash
-	}
+	return a.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Lock the latest row with FOR UPDATE to serialize chain extension.
+		// This prevents concurrent goroutines from reading the same tail.
+		var prevHash string
+		var lastEvent AuditEvent
+		err := tx.Raw(
+			"SELECT * FROM audit_events ORDER BY id DESC LIMIT 1 FOR UPDATE",
+		).Scan(&lastEvent).Error
+		if err == nil && lastEvent.ID > 0 {
+			prevHash = lastEvent.Hash
+		}
 
-	event := AuditEvent{
-		UserID:     entry.UserID,
-		OrgID:      entry.OrgID,
-		ModuleID:   a.moduleID,
-		Action:     string(entry.Action),
-		Resource:   entry.Resource,
-		ResourceID: entry.ResourceID,
-		Changes:    changesJSON,
-		PrevHash:   prevHash,
-	}
+		event := AuditEvent{
+			UserID:     entry.UserID,
+			OrgID:      entry.OrgID,
+			ModuleID:   a.moduleID,
+			Action:     string(entry.Action),
+			Resource:   entry.Resource,
+			ResourceID: entry.ResourceID,
+			Changes:    changesJSON,
+			PrevHash:   prevHash,
+		}
 
-	// Compute hash: SHA256 of (action + resource + resource_id + module_id + prev_hash).
-	hashInput := fmt.Sprintf("%s|%s|%s|%s|%s",
-		event.Action, event.Resource, event.ResourceID, event.ModuleID, prevHash)
-	hash := sha256.Sum256([]byte(hashInput))
-	event.Hash = fmt.Sprintf("%x", hash)
+		// Compute hash: SHA256 of (action + resource + resource_id + module_id + prev_hash).
+		hashInput := fmt.Sprintf("%s|%s|%s|%s|%s",
+			event.Action, event.Resource, event.ResourceID, event.ModuleID, prevHash)
+		hash := sha256.Sum256([]byte(hashInput))
+		event.Hash = fmt.Sprintf("%x", hash)
 
-	return a.db.WithContext(ctx).Create(&event).Error
+		return tx.Create(&event).Error
+	})
 }
 
 // newAuditLogger creates a kernel-owned AuditLogger for a module.

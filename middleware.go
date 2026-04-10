@@ -252,7 +252,11 @@ func (k *Kernel) moduleActivation(moduleID string) gin.HandlerFunc {
 			sdk.Error(c, sdk.Internal("missing organization context"))
 			return
 		}
-		orgID := v.(uuid.UUID)
+		orgID, ok := v.(uuid.UUID)
+		if !ok {
+			sdk.Error(c, sdk.BadRequest("invalid organization id"))
+			return
+		}
 
 		if !k.IsModuleActive(moduleID, orgID.String()) {
 			sdk.Error(c, sdk.Forbidden("module not activated for this organization"))
