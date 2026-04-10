@@ -217,9 +217,9 @@ func (k *Kernel) resolveUser() gin.HandlerFunc {
 			`, user.ID, orgID).Pluck("permission_key", &payload.Permissions)
 
 			// Store in cache
-			if k.redis != nil && k.cfg.IAM.CacheTTL > 0 {
+			if k.redis != nil && k.cfg.Server.CacheTTL > 0 {
 				if data, err := json.Marshal(&payload); err == nil {
-					k.redis.Set(c.Request.Context(), cacheKey, data, k.cfg.IAM.CacheTTL)
+					k.redis.Set(c.Request.Context(), cacheKey, data, k.cfg.Server.CacheTTL)
 				}
 			}
 		}

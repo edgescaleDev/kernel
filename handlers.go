@@ -4,7 +4,6 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"go.edgescale.dev/kernel/modules/iam"
 	"go.edgescale.dev/kernel/sdk"
 )
 
@@ -135,19 +134,21 @@ func (k *Kernel) handleMe(c *gin.Context) {
 		response["org_id"] = orgID
 	}
 
-	// Attempt to load full user profile via IAM module.
-	if reader, err := sdk.GetReader[iam.IAMReader](k.readers, "iam"); err == nil {
+	// Attempt to load full user profile via any module that provides
+	// an sdk.UserProfileReader (e.g., IAM). The kernel never imports the
+	// module directly — Go's implicit interface satisfaction handles it.
+	if reader, err := sdk.GetReader[sdk.UserProfileReader](k.readers, "iam"); err == nil {
 		subject := c.GetString("user_id")
 		provider := c.GetString("auth_provider")
 
 		if user, err := reader.GetUserByExternalID(c.Request.Context(), provider, subject); err == nil {
 			response["user"] = user
 		} else {
-			// Fallback: just include user_id if IAM fetch fails.
+			// Fallback: just include user_id if fetch fails.
 			response["user_id"] = subject
 		}
 	} else {
-		// Fallback: if IAM module is not registered.
+		// Fallback: if no user profile reader is registered.
 		if userID, exists := c.Get("user_id"); exists {
 			response["user_id"] = userID
 		}

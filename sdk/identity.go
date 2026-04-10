@@ -88,3 +88,14 @@ type Identity struct {
 	// Used by caching layers to set appropriate TTLs.
 	ExpiresAt time.Time
 }
+
+// UserProfileReader provides cross-module user profile resolution.
+// The kernel's /v1/me handler uses this interface (via the reader registry)
+// to fetch the authenticated user's full profile without importing any
+// specific module. Any identity module (e.g., IAM) satisfies this by
+// registering a reader that implements these methods.
+type UserProfileReader interface {
+	// GetUserByExternalID resolves a user by their IdP provider and subject.
+	// Returns the full user profile (module-specific struct) or an error.
+	GetUserByExternalID(ctx context.Context, provider, externalID string) (any, error)
+}
