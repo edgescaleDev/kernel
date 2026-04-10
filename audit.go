@@ -82,7 +82,8 @@ func (a *auditLogger) Log(ctx context.Context, entry sdk.AuditEntry) error {
 		var prevHash string
 		var lastEvent AuditEvent
 		err := tx.Raw(
-			"SELECT * FROM audit_events ORDER BY id DESC LIMIT 1 FOR UPDATE",
+			"SELECT * FROM audit_events WHERE module_id = ? ORDER BY id DESC LIMIT 1 FOR UPDATE",
+			a.moduleID,
 		).Scan(&lastEvent).Error
 		if err == nil && lastEvent.ID > 0 {
 			prevHash = lastEvent.Hash
