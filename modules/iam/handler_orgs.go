@@ -157,6 +157,7 @@ func (m *Module) updateOrg(c *gin.Context) {
 	m.ctx.Audit.Log(c.Request.Context(), sdk.AuditEntry{
 		Action: sdk.AuditUpdate, Resource: "organization", ResourceID: org.ID.String(),
 	})
+	m.ctx.Bus.Publish(c.Request.Context(), "iam.org.updated", org)
 
 	sdk.OK(c, org)
 }

@@ -370,25 +370,31 @@ func (m *Module) setUserRoles(c *gin.Context) {
 		}
 	}
 
-	// Replace: delete existing, insert new.
+	// Replace: insert new first (superset), then delete stale.
+	// This avoids a zero-role window between delete and insert.
 	tx := m.ctx.DB.Begin()
-
-	if err := tx.Where("user_id = ? AND org_id = ?", uri.ID, oid).Delete(&UserRole{}).Error; err != nil {
-		tx.Rollback()
-		sdk.Error(c, sdk.Internal("failed to clear existing role assignments"))
-		return
-	}
 
 	if len(req.RoleIDs) > 0 {
 		roles := make([]UserRole, len(req.RoleIDs))
 		for i, roleID := range req.RoleIDs {
 			roles[i] = UserRole{OrgID: oid, UserID: uri.ID, RoleID: roleID}
 		}
-		if err := tx.Create(&roles).Error; err != nil {
+		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&roles).Error; err != nil {
 			tx.Rollback()
 			sdk.Error(c, sdk.BadRequest("failed to assign roles"))
 			return
 		}
+	}
+
+	// Delete role assignments not in the new set.
+	q := tx.Where("user_id = ? AND org_id = ?", uri.ID, oid)
+	if len(req.RoleIDs) > 0 {
+		q = q.Where("role_id NOT IN ?", req.RoleIDs)
+	}
+	if err := q.Delete(&UserRole{}).Error; err != nil {
+		tx.Rollback()
+		sdk.Error(c, sdk.Internal("failed to clean up stale role assignments"))
+		return
 	}
 
 	if err := tx.Commit().Error; err != nil {

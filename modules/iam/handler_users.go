@@ -338,6 +338,27 @@ func (m *Module) eraseMe(c *gin.Context) {
 		return
 	}
 
+	// Prevent erasure if the user is the sole owner of any organization.
+	// Find orgs where this user has the owner role.
+	var ownedOrgIDs []uuid.UUID
+	m.ctx.DB.Model(&UserRole{}).
+		Select("user_roles.org_id").
+		Joins("JOIN module_iam.roles ON roles.id = user_roles.role_id").
+		Where("user_roles.user_id = ? AND roles.slug = 'owner'", user.ID).
+		Pluck("org_id", &ownedOrgIDs)
+
+	for _, oid := range ownedOrgIDs {
+		var otherOwners int64
+		m.ctx.DB.Model(&UserRole{}).
+			Joins("JOIN module_iam.roles ON roles.id = user_roles.role_id").
+			Where("user_roles.org_id = ? AND roles.slug = 'owner' AND user_roles.user_id != ?", oid, user.ID).
+			Count(&otherOwners)
+		if otherOwners == 0 {
+			sdk.Error(c, sdk.BadRequest("cannot erase account: you are the sole owner of an organization — transfer ownership first"))
+			return
+		}
+	}
+
 	// Collect org IDs before deleting memberships (needed for cache invalidation).
 	var orgIDs []uuid.UUID
 	if m.ctx.Redis.Client() != nil {

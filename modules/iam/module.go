@@ -49,6 +49,7 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Subject: "iam.user.created", Description: "Fired when a new user is created"},
 			{Subject: "iam.user.updated", Description: "Fired when a user profile is updated"},
 			{Subject: "iam.user.deleted", Description: "Fired when a user is soft-deleted"},
+			{Subject: "iam.user.erased", Description: "Fired when a user's PII is erased (GDPR)"},
 			{Subject: "iam.member.added", Description: "Fired when a user is added to an organization"},
 			{Subject: "iam.member.removed", Description: "Fired when a user is removed from an organization"},
 			{Subject: "iam.invitation.created", Description: "Fired when an invitation is created"},
@@ -59,6 +60,7 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Subject: "iam.role.permissions.updated", Description: "Fired when a role's permissions are updated"},
 			{Subject: "iam.user_roles.updated", Description: "Fired when a user's roles are updated"},
 			{Subject: "iam.org.created", Description: "Fired when an organization is created"},
+			{Subject: "iam.org.updated", Description: "Fired when an organization is updated"},
 			{Subject: "iam.org.deleted", Description: "Fired when an organization is soft-deleted"},
 		},
 		Config: []sdk.ConfigFieldDef{
