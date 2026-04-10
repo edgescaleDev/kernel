@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -118,6 +119,7 @@ func Errs(c *gin.Context, status int, errors []APIError) {
 
 // FromError sends an error response, auto-detecting ServiceError.
 // Falls back to a generic 500 if the error is not a ServiceError.
+// Raw error details are logged server-side but never exposed to the client.
 func FromError(c *gin.Context, err error) {
 	if se, ok := IsServiceError(err); ok {
 		Error(c, se)
@@ -127,5 +129,13 @@ func FromError(c *gin.Context, err error) {
 		Error(c, ae.Reason)
 		return
 	}
-	Error(c, Internal(err.Error()))
+
+	// Log the raw error for debugging — never send it to the client.
+	slog.Error("unhandled error",
+		"error", err.Error(),
+		"path", c.Request.URL.Path,
+		"method", c.Request.Method,
+		"request_id", c.GetString("request_id"),
+	)
+	Error(c, Internal("an internal error occurred"))
 }
