@@ -1,8 +1,8 @@
 -- Ensure only one platform org can exist.
-CREATE UNIQUE INDEX IF NOT EXISTS uq_organizations_platform ON module_iam.organizations (status)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_organizations_platform ON public.organizations (status)
 WHERE status = 'platform';
 -- Seed the platform org.
-INSERT INTO module_iam.organizations (name, slug, status)
+INSERT INTO public.organizations (name, slug, status)
 VALUES ('{"en": "Platform"}', 'platform', 'platform') ON CONFLICT (slug) DO NOTHING;
 -- Seed system roles for the platform org.
 DO $$
@@ -11,7 +11,7 @@ admin_role_id UUID;
 viewer_role_id UUID;
 BEGIN
 SELECT id INTO platform_org_id
-FROM module_iam.organizations
+FROM public.organizations
 WHERE status = 'platform';
 -- platform_admin: full cross-org access.
 INSERT INTO module_iam.roles (org_id, name, slug, description, is_system)

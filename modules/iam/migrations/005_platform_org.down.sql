@@ -3,7 +3,7 @@ DO $$
 DECLARE platform_org_id UUID;
 BEGIN
 SELECT id INTO platform_org_id
-FROM module_iam.organizations
+FROM public.organizations
 WHERE status = 'platform';
 IF platform_org_id IS NOT NULL THEN -- Remove role_permissions for platform roles.
 DELETE FROM module_iam.role_permissions
@@ -16,10 +16,10 @@ WHERE role_id IN (
 DELETE FROM module_iam.roles
 WHERE org_id = platform_org_id;
 -- Remove any platform org memberships.
-DELETE FROM module_iam.org_members
+DELETE FROM public.org_members
 WHERE org_id = platform_org_id;
 -- Remove the platform org itself.
-DELETE FROM module_iam.organizations
+DELETE FROM public.organizations
 WHERE id = platform_org_id;
 END IF;
 END $$;

@@ -1,1 +1,1 @@
-DROP TABLE IF EXISTS module_iam.users;
+DROP TABLE IF EXISTS public.users;

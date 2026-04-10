@@ -462,7 +462,7 @@ func (k *Kernel) platformGrantCommand() *cobra.Command {
 
 			// Ensure user is a member of the platform org.
 			k.db.Exec(`
-				INSERT INTO module_iam.org_members (org_id, user_id)
+				INSERT INTO public.org_members (org_id, user_id)
 				VALUES (?, ?)
 				ON CONFLICT (org_id, user_id) DO NOTHING
 			`, k.platformOrgID, userID)
@@ -516,7 +516,7 @@ func (k *Kernel) platformRevokeCommand() *cobra.Command {
 
 			// Remove platform org membership.
 			k.db.Exec(
-				"DELETE FROM module_iam.org_members WHERE org_id = ? AND user_id = ?",
+				"DELETE FROM public.org_members WHERE org_id = ? AND user_id = ?",
 				k.platformOrgID, userID,
 			)
 

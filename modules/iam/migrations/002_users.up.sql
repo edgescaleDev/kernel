@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS module_iam.users (
+CREATE TABLE IF NOT EXISTS public.users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     external_id TEXT NOT NULL,
     provider TEXT NOT NULL DEFAULT 'platform',
@@ -15,13 +15,13 @@ CREATE TABLE IF NOT EXISTS module_iam.users (
     deleted_at TIMESTAMPTZ,
     CONSTRAINT uq_users_external UNIQUE (provider, external_id)
 );
-CREATE INDEX IF NOT EXISTS idx_users_email ON module_iam.users (email)
+CREATE INDEX IF NOT EXISTS idx_users_email ON public.users (email)
 WHERE email != ''
     AND deleted_at IS NULL;
-CREATE INDEX IF NOT EXISTS idx_users_phone ON module_iam.users (phone)
+CREATE INDEX IF NOT EXISTS idx_users_phone ON public.users (phone)
 WHERE phone != ''
     AND deleted_at IS NULL;
-CREATE INDEX IF NOT EXISTS idx_users_status ON module_iam.users (status)
+CREATE INDEX IF NOT EXISTS idx_users_status ON public.users (status)
 WHERE deleted_at IS NULL;
-CREATE INDEX IF NOT EXISTS idx_users_deleted ON module_iam.users (deleted_at)
+CREATE INDEX IF NOT EXISTS idx_users_deleted ON public.users (deleted_at)
 WHERE deleted_at IS NOT NULL;

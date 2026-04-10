@@ -2,7 +2,7 @@
 -- System roles (is_system=true) are seeded by the kernel and cannot be deleted.
 CREATE TABLE IF NOT EXISTS module_iam.roles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id UUID NOT NULL REFERENCES module_iam.organizations(id) ON DELETE CASCADE,
+    org_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
     name JSONB NOT NULL DEFAULT '{}',
     slug TEXT NOT NULL,
     description JSONB NOT NULL DEFAULT '{}',
@@ -27,8 +27,8 @@ CREATE INDEX IF NOT EXISTS idx_role_permissions_role_id ON module_iam.role_permi
 -- User roles: maps a user to roles within an org. A user can have multiple roles.
 CREATE TABLE IF NOT EXISTS module_iam.user_roles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id UUID NOT NULL REFERENCES module_iam.organizations(id) ON DELETE CASCADE,
-    user_id UUID NOT NULL REFERENCES module_iam.users(id) ON DELETE CASCADE,
+    org_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
     role_id UUID NOT NULL REFERENCES module_iam.roles(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT uq_user_roles_org_user_role UNIQUE (org_id, user_id, role_id)
