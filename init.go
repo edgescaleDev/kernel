@@ -5,7 +5,6 @@ import (
 	"log/slog"
 
 	"go.edgescale.dev/kernel/sdk"
-	"gorm.io/gorm"
 )
 
 // initModules builds an sdk.Context for each module and calls Init() in
@@ -69,11 +68,9 @@ func (k *Kernel) buildContext(manifest sdk.Manifest) sdk.Context {
 		ctx.Redis = sdk.NewNamespacedRedis(k.redis, moduleID)
 	}
 
-	// Scoped DB: set search_path to the module's schema.
+	// Scoped DB: use a session callback to set search_path per-query.
 	if k.db != nil && manifest.Schema != "" && manifest.Schema != "public" {
-		ctx.DB = k.db.Session(&gorm.Session{}).Exec(
-			fmt.Sprintf("SET search_path TO %s, public", manifest.Schema),
-		)
+		ctx.DB = scopedDB(k.db, manifest.Schema)
 	} else {
 		ctx.DB = k.db
 	}
