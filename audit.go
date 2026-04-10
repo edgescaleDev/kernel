@@ -88,7 +88,11 @@ func (a *auditLogger) Log(ctx context.Context, entry sdk.AuditEntry) error {
 			prevHash = lastEvent.Hash
 		}
 
+		// Set timestamp explicitly so it's available for hashing before insert.
+		now := time.Now().UTC()
+
 		event := AuditEvent{
+			Timestamp:  now,
 			UserID:     entry.UserID,
 			OrgID:      entry.OrgID,
 			ModuleID:   a.moduleID,
@@ -99,9 +103,20 @@ func (a *auditLogger) Log(ctx context.Context, entry sdk.AuditEntry) error {
 			PrevHash:   prevHash,
 		}
 
-		// Compute hash: SHA256 of (action + resource + resource_id + module_id + prev_hash).
-		hashInput := fmt.Sprintf("%s|%s|%s|%s|%s",
-			event.Action, event.Resource, event.ResourceID, event.ModuleID, prevHash)
+		// Compute hash: SHA256 over all security-relevant fields.
+		userStr := ""
+		if event.UserID != nil {
+			userStr = event.UserID.String()
+		}
+		orgStr := ""
+		if event.OrgID != nil {
+			orgStr = event.OrgID.String()
+		}
+		hashInput := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s",
+			event.Timestamp.Format(time.RFC3339Nano),
+			userStr, orgStr,
+			event.Action, event.Resource, event.ResourceID,
+			event.ModuleID, prevHash)
 		hash := sha256.Sum256([]byte(hashInput))
 		event.Hash = fmt.Sprintf("%x", hash)
 
