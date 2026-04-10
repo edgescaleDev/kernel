@@ -21,7 +21,7 @@ func registerOrgRoutes(m *Module, router *sdk.Router) {
 
 type createOrgRequest struct {
 	Name sdk.TranslatableField `json:"name" binding:"required"`
-	Slug string                `json:"slug" binding:"required"`
+	Slug string                `json:"slug" binding:"required,min=2,max=64,lowercase"`
 }
 
 type updateOrgRequest struct {

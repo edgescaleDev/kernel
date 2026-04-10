@@ -31,7 +31,7 @@ func registerRoleRoutes(m *Module, router *sdk.Router) {
 
 type createRoleRequest struct {
 	Name        sdk.TranslatableField `json:"name"        binding:"required"`
-	Slug        string                `json:"slug"        binding:"required"`
+	Slug        string                `json:"slug"        binding:"required,min=2,max=64,lowercase"`
 	Description sdk.TranslatableField `json:"description"`
 }
 

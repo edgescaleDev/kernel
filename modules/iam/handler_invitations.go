@@ -219,13 +219,20 @@ func (m *Module) acceptInvitation(c *gin.Context) {
 	m.ctx.Bus.Publish(c.Request.Context(), "iam.invitation.accepted", inv)
 
 	// Return human-readable info for client display instead of internal IDs.
+	var orgName sdk.TranslatableField
 	var org Organization
-	m.ctx.DB.Select("name").Where("id = ?", inv.OrgID).First(&org)
+	if m.ctx.DB.Select("name").Where("id = ?", inv.OrgID).First(&org).Error == nil {
+		orgName = org.Name
+	}
+
+	var roleSlug string
 	var role Role
-	m.ctx.DB.Select("slug").Where("id = ?", inv.RoleID).First(&role)
+	if m.ctx.DB.Select("slug").Where("id = ?", inv.RoleID).First(&role).Error == nil {
+		roleSlug = role.Slug
+	}
 
 	sdk.OK(c, gin.H{
-		"org_name": org.Name,
-		"role":     role.Slug,
+		"org_name": orgName,
+		"role":     roleSlug,
 	})
 }
