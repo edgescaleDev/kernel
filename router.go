@@ -52,8 +52,9 @@ func (k *Kernel) setupRouter() {
 			adminAuth.Use(k.authenticate(), k.requirePlatformAdmin())
 
 			adminPublic := k.engine.Group("/admin/v1/" + moduleID + "/public")
+			adminV2 := k.engine.Group("/admin/v2/" + moduleID)
 
-			router = sdk.NewRouter(adminAuth, nil, adminPublic, k.checkPermission, moduleID)
+			router = sdk.NewRouter(adminAuth, adminV2, adminPublic, k.checkPermission, moduleID)
 		} else {
 			// Standard modules: org-scoped on /v1/ and /v2/.
 			authenticated := v1.Group("/" + moduleID)
