@@ -9,13 +9,14 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// RateLimit returns a Gin middleware that enforces a sliding-window rate limit
-// per client IP using Redis. If Redis is unavailable the request is allowed
+// RateLimit returns a Gin middleware that enforces a fixed-window rate limit
+// per client IP using Redis. The window starts on the first request and resets
+// after the window duration. If Redis is unavailable the request is allowed
 // through (fail-open) so that a Redis outage doesn't block traffic.
 //
 // key    — a short identifier for the endpoint (e.g., "accept", "onboard").
 // limit  — maximum number of requests allowed within the window.
-// window — the sliding window duration.
+// window — the fixed window duration.
 func RateLimit(key string, limit int, window time.Duration, rdb redis.Cmdable) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if rdb == nil {
