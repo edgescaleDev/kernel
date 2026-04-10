@@ -338,6 +338,12 @@ func (m *Module) eraseMe(c *gin.Context) {
 		return
 	}
 
+	// Collect org IDs before deleting memberships (needed for cache invalidation).
+	var orgIDs []uuid.UUID
+	if m.ctx.Redis.Client() != nil {
+		m.ctx.DB.Model(&OrgMember{}).Where("user_id = ?", user.ID).Pluck("org_id", &orgIDs)
+	}
+
 	// Anonymise PII.
 	user.ErasePersonalData()
 
@@ -379,10 +385,23 @@ func (m *Module) eraseMe(c *gin.Context) {
 	})
 	m.ctx.Bus.Publish(c.Request.Context(), "iam.user.erased", gin.H{"id": user.ID})
 
-	// Invalidate all caches for this user.
-	if m.ctx.Redis.Client() != nil {
+	// Invalidate cache keys for every org the user belonged to.
+	if len(orgIDs) > 0 {
 		ctx := c.Request.Context()
-		m.ctx.Redis.Client().Del(ctx, "middleware_user:"+user.ExternalID+":*")
+		keys := make([]string, 0, len(orgIDs)*2)
+		for _, oid := range orgIDs {
+			keys = append(keys,
+				fmt.Sprintf("user_org_membership:%s:%s", user.ID, oid),
+			)
+		}
+		m.ctx.Redis.Del(ctx, keys...)
+
+		// Middleware keys are not namespaced — use raw client.
+		mwKeys := make([]string, len(orgIDs))
+		for i, oid := range orgIDs {
+			mwKeys[i] = "middleware_user:" + user.ExternalID + ":" + oid.String()
+		}
+		m.ctx.Redis.Client().Del(ctx, mwKeys...)
 	}
 
 	sdk.NoContent(c)

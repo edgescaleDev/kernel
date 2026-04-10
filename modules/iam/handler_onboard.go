@@ -121,36 +121,38 @@ func (m *Module) onboardUser(c *gin.Context) {
 			return
 		}
 
-		// Create org membership.
+		// Create org membership (idempotent — skip if already a member).
 		member := OrgMember{
 			OrgID:    inv.OrgID,
 			UserID:   user.ID,
 			JoinedAt: time.Now(),
 		}
+		tx.SavePoint("before_member_create")
 		if err := tx.Create(&member).Error; err != nil {
-			tx.Rollback()
-			sdk.Error(c, sdk.Internal("failed to create org membership"))
-			return
+			// Unique constraint violation means user is already a member — that's fine.
+			tx.RollbackTo("before_member_create")
+		} else {
+			audits = append(audits, sdk.AuditEntry{
+				Action: sdk.AuditCreate, Resource: "org_member", ResourceID: member.ID.String(),
+			})
+			events = append(events, deferredEvent{"iam.member.added", member})
 		}
-		audits = append(audits, sdk.AuditEntry{
-			Action: sdk.AuditCreate, Resource: "org_member", ResourceID: member.ID.String(),
-		})
-		events = append(events, deferredEvent{"iam.member.added", member})
 
 		// Assign the role specified in the invitation (stored as role_id).
+		// Use savepoint so a duplicate role assignment doesn't abort the tx.
 		userRole := UserRole{
 			OrgID:  inv.OrgID,
 			UserID: user.ID,
 			RoleID: inv.RoleID,
 		}
+		tx.SavePoint("before_role_assign")
 		if err := tx.Create(&userRole).Error; err != nil {
-			tx.Rollback()
-			sdk.Error(c, sdk.Internal("failed to assign role"))
-			return
+			tx.RollbackTo("before_role_assign")
+		} else {
+			audits = append(audits, sdk.AuditEntry{
+				Action: sdk.AuditCreate, Resource: "user_roles", ResourceID: userRole.ID.String(),
+			})
 		}
-		audits = append(audits, sdk.AuditEntry{
-			Action: sdk.AuditCreate, Resource: "user_roles", ResourceID: userRole.ID.String(),
-		})
 	}
 
 	// If an org payload is provided, create a new org and assign the user as owner.
