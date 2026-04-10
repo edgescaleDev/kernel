@@ -32,9 +32,13 @@ func (t TranslatableField) Get(locale string) string {
 
 // T creates a TranslatableField. First arg is the "en" value.
 // Optional subsequent args are locale, value pairs.
+// Panics if an odd number of pairs is provided (missing value for a locale).
 func T(en string, pairs ...string) TranslatableField {
+	if len(pairs)%2 != 0 {
+		panic(fmt.Sprintf("sdk.T: odd number of pairs (%d); each locale must have a value", len(pairs)))
+	}
 	t := TranslatableField{"en": en}
-	for i := 0; i < len(pairs)-1; i += 2 {
+	for i := 0; i < len(pairs); i += 2 {
 		t[pairs[i]] = pairs[i+1]
 	}
 	return t
@@ -42,9 +46,13 @@ func T(en string, pairs ...string) TranslatableField {
 
 // Translations creates a TranslatableField from locale, value pairs.
 // No default locale assumed.
+// Panics if an odd number of pairs is provided (missing value for a locale).
 func Translations(pairs ...string) TranslatableField {
+	if len(pairs)%2 != 0 {
+		panic(fmt.Sprintf("sdk.Translations: odd number of pairs (%d); each locale must have a value", len(pairs)))
+	}
 	t := TranslatableField{}
-	for i := 0; i < len(pairs)-1; i += 2 {
+	for i := 0; i < len(pairs); i += 2 {
 		t[pairs[i]] = pairs[i+1]
 	}
 	return t
