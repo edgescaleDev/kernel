@@ -1,11 +1,13 @@
 package iam
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.edgescale.dev/kernel/sdk"
 )
 
@@ -64,7 +66,12 @@ func (m *Module) addMember(c *gin.Context) {
 	}
 
 	if err := m.ctx.DB.Create(&member).Error; err != nil {
-		sdk.Error(c, sdk.Conflict("user is already a member of this organization"))
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			sdk.Error(c, sdk.Conflict("user is already a member of this organization"))
+		} else {
+			sdk.Error(c, sdk.Internal("failed to add member"))
+		}
 		return
 	}
 

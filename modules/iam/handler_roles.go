@@ -1,8 +1,11 @@
 package iam
 
 import (
+	"errors"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.edgescale.dev/kernel/sdk"
 	"gorm.io/gorm/clause"
 )
@@ -77,7 +80,12 @@ func (m *Module) createRole(c *gin.Context) {
 	}
 
 	if err := m.ctx.DB.Create(&role).Error; err != nil {
-		sdk.Error(c, sdk.Conflict("role with this slug already exists in this org"))
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			sdk.Error(c, sdk.Conflict("role with this slug already exists in this org"))
+		} else {
+			sdk.Error(c, sdk.Internal("failed to create role"))
+		}
 		return
 	}
 
