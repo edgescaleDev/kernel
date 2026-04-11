@@ -110,10 +110,9 @@ func TestManifests(t *testing.T) {
 	if len(manifests) != 2 {
 		t.Errorf("Manifests() returned %d entries, want 2", len(manifests))
 	}
-	if _, ok := manifests["orders"]; !ok {
-		t.Error("missing 'orders' in Manifests()")
-	}
-	if _, ok := manifests["billing"]; !ok {
-		t.Error("missing 'billing' in Manifests()")
+	for _, id := range []string{"orders", "billing"} {
+		if _, ok := manifests[id]; !ok {
+			t.Errorf("missing %q in Manifests()", id)
+		}
 	}
 }

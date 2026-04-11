@@ -12,13 +12,15 @@ import (
 // If the key is new, it locks it in Redis with the given TTL and returns false.
 // If the key exists, it returns true (duplicate request).
 //
+// The key is namespaced by org and user to prevent cross-user collisions.
+//
 // Usage in middleware or handler:
 //
 //	key := c.GetHeader("Idempotency-Key")
-//	if duplicate, _ := k.Idempotent(ctx, key, 24*time.Hour); duplicate {
+//	if duplicate, _ := k.Idempotent(ctx, orgID, userID, key, 24*time.Hour); duplicate {
 //	    // Return cached response
 //	}
-func (k *Kernel) Idempotent(ctx context.Context, key string, ttl time.Duration) (bool, error) {
+func (k *Kernel) Idempotent(ctx context.Context, orgID, userID, key string, ttl time.Duration) (bool, error) {
 	if k.redis == nil {
 		return false, nil
 	}
@@ -26,7 +28,7 @@ func (k *Kernel) Idempotent(ctx context.Context, key string, ttl time.Duration) 
 		return false, nil
 	}
 
-	cacheKey := "idempotency:" + key
+	cacheKey := fmt.Sprintf("idempotency:%s:%s:%s", orgID, userID, key)
 	set, err := k.redis.SetNX(ctx, cacheKey, "1", ttl).Result()
 	if err != nil {
 		return false, fmt.Errorf("idempotency check: %w", err)
@@ -38,23 +40,23 @@ func (k *Kernel) Idempotent(ctx context.Context, key string, ttl time.Duration) 
 
 // IdempotentResult stores the response for an idempotency key so duplicate
 // requests can return the same response without reprocessing.
-func (k *Kernel) IdempotentResult(ctx context.Context, key string, result []byte, ttl time.Duration) error {
+func (k *Kernel) IdempotentResult(ctx context.Context, orgID, userID, key string, result []byte, ttl time.Duration) error {
 	if k.redis == nil {
 		return nil
 	}
 
-	cacheKey := "idempotency:result:" + key
+	cacheKey := fmt.Sprintf("idempotency:result:%s:%s:%s", orgID, userID, key)
 	return k.redis.Set(ctx, cacheKey, result, ttl).Err()
 }
 
 // GetIdempotentResult retrieves a previously stored response for the given key.
 // Returns nil, nil if no cached response exists.
-func (k *Kernel) GetIdempotentResult(ctx context.Context, key string) ([]byte, error) {
+func (k *Kernel) GetIdempotentResult(ctx context.Context, orgID, userID, key string) ([]byte, error) {
 	if k.redis == nil {
 		return nil, nil
 	}
 
-	cacheKey := "idempotency:result:" + key
+	cacheKey := fmt.Sprintf("idempotency:result:%s:%s:%s", orgID, userID, key)
 	data, err := k.redis.Get(ctx, cacheKey).Bytes()
 	if err == redis.Nil {
 		return nil, nil

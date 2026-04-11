@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 // Migrate runs all database migrations in the correct order:
@@ -96,20 +98,24 @@ func (k *Kernel) runModuleMigrations(moduleID, schema string, migrations fs.FS) 
 			"file", file,
 		)
 
-		if err := k.db.Exec(sql).Error; err != nil {
-			return fmt.Errorf("execute %s: %w", file, err)
-		}
-
-		// Record the migration.
 		checksum := fmt.Sprintf("%x", sha256.Sum256(content))
-		record := SchemaMigration{
-			ModuleID: moduleID,
-			Version:  version,
-			Filename: file,
-			Checksum: checksum,
-		}
-		if err := k.db.Create(&record).Error; err != nil {
-			return fmt.Errorf("record migration %s: %w", file, err)
+		if err := k.db.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Exec(sql).Error; err != nil {
+				return fmt.Errorf("execute %s: %w", file, err)
+			}
+
+			record := SchemaMigration{
+				ModuleID: moduleID,
+				Version:  version,
+				Filename: file,
+				Checksum: checksum,
+			}
+			if err := tx.Create(&record).Error; err != nil {
+				return fmt.Errorf("record migration %s: %w", file, err)
+			}
+			return nil
+		}); err != nil {
+			return err
 		}
 	}
 

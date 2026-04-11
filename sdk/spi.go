@@ -19,6 +19,11 @@ const (
 	// TypeIntegration services are installed only when needed.
 	// Typically third-party connectors or optional modules.
 	TypeIntegration
+
+	// TypeAdmin services expose platform-level management endpoints.
+	// They are mounted on /admin/v1/ without org scoping, giving them
+	// cross-org visibility for platform administration.
+	TypeAdmin
 )
 
 // String returns the human-readable name of the service type.
@@ -30,6 +35,8 @@ func (t ModuleType) String() string {
 		return "feature"
 	case TypeIntegration:
 		return "integration"
+	case TypeAdmin:
+		return "admin"
 	default:
 		return "unknown"
 	}

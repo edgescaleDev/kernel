@@ -20,6 +20,7 @@ func (k *Kernel) setupRouter() {
 	// Global middleware - applied to every request.
 	k.engine.Use(
 		k.requestID(),
+		k.parseLocale(),
 		k.accessLog(),
 		k.recovery(),
 	)
@@ -34,26 +35,45 @@ func (k *Kernel) setupRouter() {
 	v1.GET("/me", k.handleMe)
 	v1.GET("/modules", k.handleListModules)
 	v1.GET("/modules/active", k.handleActiveModules)
+	v1.GET("/permissions", k.handleListPermissions)
 
 	// Mount each module's routes under /v1/{module_id}/ and /v2/{module_id}/.
 	for _, m := range k.Modules() {
 		manifest := m.Manifest()
 		moduleID := manifest.ID
 
-		authenticated := v1.Group("/" + moduleID)
-		authenticated.Use(k.resolveOrg(), k.moduleActivation(moduleID))
+		var router *sdk.Router
 
-		public := k.engine.Group("/v1/" + moduleID)
+		if manifest.Type == sdk.TypeAdmin {
+			// Admin modules are mounted on /admin/v1/{module_id}/.
+			// No resolveOrg or moduleActivation — they operate cross-org.
+			// requirePlatformAdmin loads permissions from the platform org.
+			adminAuth := k.engine.Group("/admin/v1/" + moduleID)
+			adminAuth.Use(k.authenticate(), k.requirePlatformAdmin())
 
-		v2Auth := k.engine.Group("/v2/" + moduleID)
-		v2Auth.Use(k.authenticate(), k.resolveOrg(), k.moduleActivation(moduleID))
+			adminPublic := k.engine.Group("/admin/v1/" + moduleID + "/public")
+			adminV2 := k.engine.Group("/admin/v2/" + moduleID)
 
-		router := sdk.NewRouter(authenticated, v2Auth, public, k.checkPermission, moduleID)
+			router = sdk.NewRouter(adminAuth, adminV2, adminPublic, k.checkPermission, moduleID)
+		} else {
+			// Standard modules: org-scoped on /v1/ and /v2/.
+			authenticated := v1.Group("/" + moduleID)
+			authenticated.Use(k.resolveOrg(), k.resolveUser(), k.moduleActivation(moduleID))
+
+			public := k.engine.Group("/v1/" + moduleID)
+
+			v2Auth := k.engine.Group("/v2/" + moduleID)
+			v2Auth.Use(k.authenticate(), k.resolveOrg(), k.resolveUser(), k.moduleActivation(moduleID))
+
+			router = sdk.NewRouter(authenticated, v2Auth, public, k.checkPermission, moduleID)
+		}
+
 		m.RegisterRoutes(router)
 
 		routes := router.Routes()
 		k.logger.Info("mounted routes",
 			"module", moduleID,
+			"type", manifest.Type.String(),
 			"count", len(routes),
 		)
 	}
@@ -69,6 +89,11 @@ func (k *Kernel) Serve() error {
 
 	// Sync the in-memory module manifests to the database.
 	if err := k.syncRegistry(); err != nil {
+		return fmt.Errorf("kernel: %w", err)
+	}
+
+	// Discover and cache the platform org ID for admin middleware.
+	if err := k.loadPlatformOrg(); err != nil {
 		return fmt.Errorf("kernel: %w", err)
 	}
 

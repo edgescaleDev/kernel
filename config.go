@@ -38,6 +38,10 @@ type ServerConfig struct {
 
 	// ShutdownTimeout is the maximum time to wait for graceful shutdown.
 	ShutdownTimeout time.Duration `mapstructure:"shutdown_timeout"`
+
+	// CacheTTL is how long resolved user/permission data is cached
+	// in the kernel middleware layer (default: 15m).
+	CacheTTL time.Duration `mapstructure:"cache_ttl"`
 }
 
 // DatabaseConfig holds PostgreSQL connection settings.
@@ -115,6 +119,7 @@ func DefaultConfig() Config {
 			WriteTimeout:    15 * time.Second,
 			IdleTimeout:     60 * time.Second,
 			ShutdownTimeout: 30 * time.Second,
+			CacheTTL:        15 * time.Minute,
 		},
 		Database: DatabaseConfig{
 			Host:            "localhost",

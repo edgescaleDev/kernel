@@ -133,7 +133,7 @@ func (r *Router) register(method, path, perm string, version int, handlers ...gi
 	}
 
 	var allHandlers []gin.HandlerFunc
-	if perm != Public && perm != "" {
+	if perm != Public && perm != "" && perm != Self {
 		allHandlers = append(allHandlers, r.checkPerm(perm))
 	}
 	allHandlers = append(allHandlers, handlers...)

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.edgescale.dev/kernel/sdk"
 	"gorm.io/gorm"
 )
 
@@ -38,6 +39,14 @@ func (k *Kernel) ProvisionOrg(ctx context.Context, orgID uuid.UUID, activatedBy 
 			"org_id", orgID,
 			"core_modules", k.coreModuleCount(),
 		)
+
+		if err := k.hooks.FireAfter(ctx, "after.kernel.org.provisioned", sdk.OrgProvisionedEvent{
+			OrgID:       orgID,
+			ActivatedBy: activatedBy,
+		}); err != nil {
+			k.logger.Error("provision hooks failed", "error", err)
+		}
+
 		return nil
 	})
 }

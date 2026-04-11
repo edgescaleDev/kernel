@@ -59,6 +59,31 @@ func toModuleInfo(m sdk.Manifest) moduleInfo {
 	}
 }
 
+// permissionInfo is the JSON shape returned by the /v1/permissions endpoint.
+type permissionInfo struct {
+	Module string `json:"module"`
+	Key    string `json:"key"`
+	Label  string `json:"label"`
+}
+
+// handleListPermissions returns all permissions declared by all registered modules.
+// GET /v1/permissions
+func (k *Kernel) handleListPermissions(c *gin.Context) {
+	var perms []permissionInfo
+	for _, m := range k.Modules() {
+		manifest := m.Manifest()
+		for _, p := range manifest.Permissions {
+			perms = append(perms, permissionInfo{
+				Module: manifest.ID,
+				Key:    p.Key,
+				Label:  p.Label,
+			})
+		}
+	}
+
+	sdk.OK(c, perms)
+}
+
 // handleListModules returns metadata for all registered modules.
 // GET /v1/modules
 func (k *Kernel) handleListModules(c *gin.Context) {
@@ -75,12 +100,24 @@ func (k *Kernel) handleListModules(c *gin.Context) {
 
 // handleActiveModules returns modules that are active for the requesting org.
 // GET /v1/modules/active
-// TODO: Once the registry module is built, filter by module_activations table.
-// For now, returns all core modules plus all registered modules.
+// Core modules are always included. Feature modules are filtered by the
+// module_activations table via IsModuleActive (Redis cached).
 func (k *Kernel) handleActiveModules(c *gin.Context) {
+	orgIDVal, hasOrg := c.Get("org_id")
+
 	modules := make([]moduleInfo, 0, len(k.modules))
 	for _, m := range k.Modules() {
-		modules = append(modules, toModuleInfo(m.Manifest()))
+		manifest := m.Manifest()
+
+		// If we have an org context, filter by activation status.
+		if hasOrg {
+			orgID, _ := orgIDVal.(string)
+			if !k.IsModuleActive(manifest.ID, orgID) {
+				continue
+			}
+		}
+
+		modules = append(modules, toModuleInfo(manifest))
 	}
 
 	c.JSON(http.StatusOK, sdk.Envelope{
@@ -92,7 +129,6 @@ func (k *Kernel) handleActiveModules(c *gin.Context) {
 // handleMe returns the authenticated user's profile, permissions,
 // and active modules for the current org.
 // GET /v1/me
-// TODO: Full implementation depends on IAM module for user/permission lookup.
 func (k *Kernel) handleMe(c *gin.Context) {
 	response := gin.H{
 		"authenticated": true,
@@ -105,14 +141,29 @@ func (k *Kernel) handleMe(c *gin.Context) {
 		}
 	}
 
-	// Include user_id if resolved.
-	if userID, exists := c.Get("user_id"); exists {
-		response["user_id"] = userID
-	}
-
 	// Include org_id if resolved.
 	if orgID, exists := c.Get("org_id"); exists {
 		response["org_id"] = orgID
+	}
+
+	// Attempt to load full user profile via any module that provides
+	// an sdk.UserProfileReader (e.g., IAM). The kernel never imports the
+	// module directly — Go's implicit interface satisfaction handles it.
+	if reader, err := sdk.GetReader[sdk.UserProfileReader](k.readers, "iam"); err == nil {
+		subject := c.GetString("user_id")
+		provider := c.GetString("auth_provider")
+
+		if user, err := reader.GetUserByExternalID(c.Request.Context(), provider, subject); err == nil {
+			response["user"] = user
+		} else {
+			// Fallback: just include user_id if fetch fails.
+			response["user_id"] = subject
+		}
+	} else {
+		// Fallback: if no user profile reader is registered.
+		if userID, exists := c.Get("user_id"); exists {
+			response["user_id"] = userID
+		}
 	}
 
 	c.JSON(http.StatusOK, sdk.Envelope{

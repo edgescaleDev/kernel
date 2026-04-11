@@ -157,8 +157,8 @@ func TestShutdown_ServicesInReverseOrder(t *testing.T) {
 		}
 	}
 
-	k.MustRegister(makeRecorder("iam"))
-	k.MustRegister(makeRecorder("billing", "iam"))
+	k.MustRegister(makeRecorder("core"))
+	k.MustRegister(makeRecorder("billing", "core"))
 	k.MustRegister(makeRecorder("invoicing", "billing"))
 
 	// Manually compute dep order (Boot requires infra).
@@ -173,11 +173,11 @@ func TestShutdown_ServicesInReverseOrder(t *testing.T) {
 		t.Fatalf("Shutdown: %v", err)
 	}
 
-	// Expect reverse dep order: invoicing, billing, iam.
+	// Expect reverse dep order: invoicing, billing, core (iam/iam-admin have no recorder).
 	if len(shutdownOrder) != 3 {
 		t.Fatalf("shutdown count = %d, want 3", len(shutdownOrder))
 	}
-	want := []string{"invoicing", "billing", "iam"}
+	want := []string{"invoicing", "billing", "core"}
 	for i, id := range want {
 		if shutdownOrder[i] != id {
 			t.Errorf("shutdown[%d] = %q, want %q", i, shutdownOrder[i], id)
@@ -210,4 +210,33 @@ type shutdownRecorder struct {
 func (s *shutdownRecorder) Shutdown() error {
 	*s.order = append(*s.order, s.manifest.ID)
 	return nil
+}
+
+func TestValidPermissionKey(t *testing.T) {
+	k := New(DefaultConfig())
+
+	// Register a module with permissions.
+	alpha := newStub("alpha")
+	alpha.manifest.Permissions = []sdk.Permission{
+		{Key: "alpha.read", Label: "Read alpha"},
+		{Key: "alpha.write", Label: "Write alpha"},
+	}
+	k.MustRegister(alpha)
+
+	tests := []struct {
+		key  string
+		want bool
+	}{
+		{"alpha.read", true},
+		{"alpha.write", true},
+		{"alpha.delete", false},
+		{"beta.read", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		if got := k.ValidPermissionKey(tt.key); got != tt.want {
+			t.Errorf("ValidPermissionKey(%q) = %v, want %v", tt.key, got, tt.want)
+		}
+	}
 }

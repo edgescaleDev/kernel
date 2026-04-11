@@ -4,12 +4,20 @@ import (
 	"context"
 	"fmt"
 	"sync"
+
+	"github.com/google/uuid"
 )
 
 // HookPoint identifies a specific interception point in a service's lifecycle.
 // Hook points follow the convention: "{lifecycle}.{service}.{action}"
 // Example: "before.orders.create", "after.orders.create"
 type HookPoint string
+
+// OrgProvisionedEvent is the payload for the "after.kernel.org.provisioned" hook.
+type OrgProvisionedEvent struct {
+	OrgID       uuid.UUID
+	ActivatedBy uuid.UUID
+}
 
 // HookHandler is a function that intercepts a hook point.
 // Returning an AbortError from a Before hook stops the operation.

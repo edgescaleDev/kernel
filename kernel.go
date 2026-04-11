@@ -10,8 +10,10 @@ import (
 	"sync"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/spf13/cobra"
+
 	"go.edgescale.dev/kernel/sdk"
 	"gorm.io/gorm"
 )
@@ -53,13 +55,17 @@ type Kernel struct {
 	readers *sdk.ReaderRegistry
 
 	// Pluggable implementations (set by consumer before Boot).
-	taskExecutor sdk.TaskExecutor
-	searchEngine sdk.SearchEngine
-	workflows    sdk.WorkflowRegistry
-	activities   sdk.ActivityRegistry
+	identityProvider sdk.IdentityProvider
+	taskExecutor     sdk.TaskExecutor
+	searchEngine     sdk.SearchEngine
+	workflows        sdk.WorkflowRegistry
+	activities       sdk.ActivityRegistry
 
 	// Custom CLI commands registered by the consumer.
 	customCommands []*cobra.Command
+
+	// Platform org ID (cached during Serve).
+	platformOrgID uuid.UUID
 
 	// Shutdown coordination.
 	shutdownOnce sync.Once
@@ -76,6 +82,7 @@ func New(cfg Config) *Kernel {
 		hooks:     sdk.NewHookRegistry(),
 		readers:   sdk.NewReaderRegistry(),
 	}
+
 }
 
 // Register adds a compiled-in module to the kernel.
@@ -121,6 +128,12 @@ func (k *Kernel) SetSearchEngine(engine sdk.SearchEngine) {
 	k.searchEngine = engine
 }
 
+// SetIdentityProvider sets the pluggable identity provider (Firebase, Okta, Keycloak, etc.).
+// Must be called before Boot(). If not called, all authentication requests are rejected.
+func (k *Kernel) SetIdentityProvider(provider sdk.IdentityProvider) {
+	k.identityProvider = provider
+}
+
 // SetEventBus sets the event bus implementation.
 // Must be called before Boot(). If not called, a noop bus is used.
 func (k *Kernel) SetEventBus(bus sdk.EventBus) {
@@ -162,6 +175,10 @@ func (k *Kernel) Boot() error {
 // that were not explicitly set by the consumer. This prevents nil
 // dereferences when modules access Tasks, Search, or Bus.
 func (k *Kernel) installFallbacks() {
+	if k.identityProvider == nil {
+		k.logger.Warn("no identity provider set - all authentication will be rejected")
+		k.identityProvider = noopIdentityProvider{}
+	}
 	if k.bus == nil {
 		k.logger.Warn("no event bus set - using noop bus")
 		k.bus = noopEventBus{}
@@ -221,6 +238,47 @@ func (k *Kernel) Manifests() map[string]sdk.Manifest {
 	result := make(map[string]sdk.Manifest, len(k.manifests))
 	maps.Copy(result, k.manifests)
 	return result
+}
+
+// PlatformOrgID returns the cached platform organization ID.
+// Returns uuid.Nil if not yet loaded.
+func (k *Kernel) PlatformOrgID() uuid.UUID {
+	return k.platformOrgID
+}
+
+// loadPlatformOrg discovers and caches the platform org ID.
+// Called during Serve() after modules are initialized and migrations have run.
+func (k *Kernel) loadPlatformOrg() error {
+	var result struct {
+		ID uuid.UUID
+	}
+	err := k.db.Raw(
+		"SELECT id FROM organizations WHERE status = 'platform' LIMIT 1",
+	).Scan(&result).Error
+	if err != nil {
+		return fmt.Errorf("load platform org: %w", err)
+	}
+	if result.ID == uuid.Nil {
+		k.logger.Warn("no platform org found — platform admin features disabled")
+		return nil
+	}
+	k.platformOrgID = result.ID
+	k.logger.Info("platform org loaded", "id", k.platformOrgID)
+	return nil
+}
+
+// ValidPermissionKey returns true if the given key is declared
+// by any registered module's manifest. Use this to validate
+// permission keys at write-time (e.g., when assigning permissions to roles).
+func (k *Kernel) ValidPermissionKey(key string) bool {
+	for _, m := range k.manifests {
+		for _, p := range m.Permissions {
+			if p.Key == key {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Execute builds a Cobra command tree and runs it.

@@ -45,6 +45,9 @@ type Context struct {
 	// Hooks provides sync hook point registration and firing.
 	Hooks *HookRegistry
 
+	// IdentityProvider validates and parses bearer tokens.
+	IdentityProvider IdentityProvider
+
 	// Outbox provides durable event publishing within the same database transaction.
 	Outbox OutboxWriter
 
@@ -53,6 +56,12 @@ type Context struct {
 
 	// ServiceID is the identifier of the service this context belongs to.
 	ServiceID string
+
+	// ValidPermissionKey returns true if the given key is declared
+	// by any registered module manifest. Used to validate permission
+	// keys at write-time (e.g., when assigning permissions to roles).
+	// The wildcard key "*" is always considered valid.
+	ValidPermissionKey func(key string) bool
 }
 
 // Reader returns a type-safe cross-service reader.
@@ -65,4 +74,10 @@ func Reader[T any](ctx *Context, serviceID string) (T, error) {
 // Called during Init() to expose this service's read API to other services.
 func (ctx *Context) RegisterReader(reader any) {
 	ctx.readers.Register(ctx.ServiceID, reader)
+}
+
+// SetReaders injects the shared reader registry into this context.
+// Called by the kernel during context construction — modules should not call this.
+func (ctx *Context) SetReaders(r *ReaderRegistry) {
+	ctx.readers = r
 }

@@ -80,3 +80,48 @@ func TestTranslatableField_ValueNil(t *testing.T) {
 		t.Errorf("nil field Value() = %v, want nil", val)
 	}
 }
+
+func TestTranslatableField_Constructors(t *testing.T) {
+	tf1 := T("Hello", "ar", "Ahlan")
+	if tf1["en"] != "Hello" || tf1["ar"] != "Ahlan" {
+		t.Errorf("T() mismatch: %v", tf1)
+	}
+
+	tf2 := Translations("en", "Hi", "es", "Hola")
+	if len(tf2) != 2 || tf2["en"] != "Hi" || tf2["es"] != "Hola" {
+		t.Errorf("Translations() mismatch: %v", tf2)
+	}
+}
+
+func TestTranslatableField_SetMerge(t *testing.T) {
+	tf := TranslatableField{}
+	tf = tf.Set("ar", "مرحبا").Set("fr", "Bonjour")
+
+	if tf.Get("fr") != "Bonjour" {
+		t.Errorf("Set() failed")
+	}
+
+	tf2 := T("Hello", "es", "Hola")
+	tf = tf.Merge(tf2)
+
+	if tf.Get("en") != "Hello" || tf.Get("ar") != "مرحبا" || tf.Get("es") != "Hola" {
+		t.Errorf("Merge() failed: %v", tf)
+	}
+}
+
+func TestTranslatableField_QueryHelpers(t *testing.T) {
+	tf := T("Hi", "es", "Hola")
+
+	if !tf.Has("es") || tf.Has("fr") {
+		t.Errorf("Has() failed")
+	}
+
+	locales := tf.Locales()
+	if len(locales) != 2 {
+		t.Errorf("Locales() failed: %v", locales)
+	}
+
+	if tf.String() != "Hi" {
+		t.Errorf("String() failed")
+	}
+}

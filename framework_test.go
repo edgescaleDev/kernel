@@ -1,7 +1,6 @@
 package kernel
 
 import (
-	"io/fs"
 	"log/slog"
 	"testing"
 	"time"
@@ -149,18 +148,16 @@ func TestIsModuleActive_UnregisteredModule(t *testing.T) {
 
 func TestIsModuleActive_CoreModule(t *testing.T) {
 	k := New(DefaultConfig())
+	k.MustRegister(newCoreStub("auth"))
 
-	// Register a core module stub.
-	k.MustRegister(&coreStub{})
-
-	if !k.IsModuleActive("iam", "any-org-id") {
+	if !k.IsModuleActive("auth", "any-org-id") {
 		t.Error("core module should always be active")
 	}
 }
 
 func TestCoreModuleCount(t *testing.T) {
 	k := New(DefaultConfig())
-	k.MustRegister(&coreStub{})
+	k.MustRegister(newCoreStub("auth"))
 	k.MustRegister(newStub("billing"))
 
 	if k.coreModuleCount() != 1 {
@@ -177,23 +174,15 @@ func TestStatusString(t *testing.T) {
 	}
 }
 
-// coreStub is a Module stub with TypeCore for testing.
-type coreStub struct{}
-
-func (s *coreStub) Manifest() sdk.Manifest {
-	return sdk.Manifest{
-		ID:      "iam",
-		Name:    "IAM",
-		Version: "1.0.0",
-		Type:    sdk.TypeCore,
-		Schema:  "public",
+// newCoreStub creates a stubModule with TypeCore for testing.
+func newCoreStub(id string) *stubModule {
+	return &stubModule{
+		manifest: sdk.Manifest{
+			ID:      id,
+			Name:    id,
+			Version: "1.0.0",
+			Type:    sdk.TypeCore,
+			Schema:  "public",
+		},
 	}
 }
-func (s *coreStub) Migrations() fs.FS                         { return nil }
-func (s *coreStub) Init(_ sdk.Context) error                  { return nil }
-func (s *coreStub) RegisterRoutes(_ *sdk.Router)              {}
-func (s *coreStub) RegisterEvents(_ sdk.EventBus)             {}
-func (s *coreStub) RegisterHooks(_ *sdk.HookRegistry)         {}
-func (s *coreStub) RegisterWorkflows(_ sdk.WorkflowRegistry)  {}
-func (s *coreStub) RegisterActivities(_ sdk.ActivityRegistry) {}
-func (s *coreStub) Shutdown() error                           { return nil }
