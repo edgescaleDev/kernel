@@ -207,7 +207,7 @@ func (k *Kernel) Rollback(moduleID string, steps int) error {
 			return fmt.Errorf("rollback: read %s: %w", downFilename, err)
 		}
 
-		sql := fmt.Sprintf("SET search_path TO %s, public;\n%s", schema, string(content))
+		sql := fmt.Sprintf("SET LOCAL search_path TO %s, public;\n%s", schema, string(content))
 
 		k.logger.Info("rolling back migration",
 			"module", moduleID,
