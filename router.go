@@ -35,6 +35,7 @@ func (k *Kernel) setupRouter() {
 	kernelAPI := k.engine.Group("/_kernel")
 	{
 		kernelAPI.Use(k.authenticate())
+		kernelAPI.GET("/me", k.handleMe)
 		kernelAPI.GET("/modules", k.handleListModules)
 		kernelAPI.GET("/modules/active", k.handleActiveModules)
 		kernelAPI.GET("/permissions", k.handleListPermissions)

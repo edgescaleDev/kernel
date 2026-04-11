@@ -4,12 +4,32 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io/fs"
+	"regexp"
 	"strings"
 
 	"go.edgescale.dev/kernel/internal"
 	"go.edgescale.dev/kernel/sdk"
 	"gorm.io/gorm"
 )
+
+// validSchemaName matches safe PostgreSQL identifier characters only.
+// This prevents SQL injection when interpolating schema names into SET LOCAL statements.
+var validSchemaName = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+
+// postgresMaxIdentLen is the maximum length for a PostgreSQL identifier (NAMEDATALEN-1).
+const postgresMaxIdentLen = 63
+
+// validateSchema returns an error if the schema name contains unsafe characters
+// or exceeds PostgreSQL's maximum identifier length.
+func validateSchema(schema string) error {
+	if len(schema) > postgresMaxIdentLen {
+		return fmt.Errorf("invalid schema name %q: exceeds PostgreSQL maximum identifier length of %d", schema, postgresMaxIdentLen)
+	}
+	if !validSchemaName.MatchString(schema) {
+		return fmt.Errorf("invalid schema name %q: must match [a-zA-Z_][a-zA-Z0-9_]*", schema)
+	}
+	return nil
+}
 
 // Migrate runs all database migrations in the correct order:
 //  1. Kernel-owned migrations (public schema)
@@ -61,6 +81,10 @@ func (k *Kernel) Migrate() error {
 // runModuleMigrations applies SQL migration files for a single module.
 // Files are sorted by name and only unapplied migrations are executed.
 func (k *Kernel) runModuleMigrations(moduleID, schema string, migrations fs.FS) error {
+	if err := validateSchema(schema); err != nil {
+		return err
+	}
+
 	files, err := internal.CollectMigrationFiles(migrations)
 	if err != nil {
 		return fmt.Errorf("read migrations: %w", err)
@@ -71,7 +95,9 @@ func (k *Kernel) runModuleMigrations(moduleID, schema string, migrations fs.FS) 
 
 	// Find already-applied migrations.
 	var applied []internal.SchemaMigration
-	k.db.Where("module_id = ?", moduleID).Order("version ASC").Find(&applied)
+	if result := k.db.Where("module_id = ?", moduleID).Order("version ASC").Find(&applied); result.Error != nil {
+		return fmt.Errorf("query applied migrations: %w", result.Error)
+	}
 	appliedSet := make(map[int]bool, len(applied))
 	for _, a := range applied {
 		appliedSet[a.Version] = true
@@ -88,8 +114,9 @@ func (k *Kernel) runModuleMigrations(moduleID, schema string, migrations fs.FS) 
 			return fmt.Errorf("read %s: %w", file, err)
 		}
 
-		// Set search_path for the module's schema.
-		sql := fmt.Sprintf("SET search_path TO %s, public;\n%s", schema, string(content))
+		// SET LOCAL scopes the search_path change to the current transaction,
+		// preventing it from leaking to other sessions on pooled connections.
+		sql := fmt.Sprintf("SET LOCAL search_path TO %s, public;\n%s", schema, string(content))
 
 		k.logger.Info("applying migration",
 			"module", moduleID,
@@ -167,9 +194,20 @@ func (k *Kernel) Rollback(moduleID string, steps int) error {
 		schema = "public"
 	}
 
+	if err := validateSchema(schema); err != nil {
+		return fmt.Errorf("rollback: %w", err)
+	}
+
+	// Ensure the schema_migrations table exists before querying it.
+	if err := k.db.AutoMigrate(&internal.SchemaMigration{}); err != nil {
+		return fmt.Errorf("rollback: ensure schema_migrations: %w", err)
+	}
+
 	// Find applied migrations in reverse order.
 	var applied []internal.SchemaMigration
-	k.db.Where("module_id = ?", moduleID).Order("version DESC").Find(&applied)
+	if result := k.db.Where("module_id = ?", moduleID).Order("version DESC").Find(&applied); result.Error != nil {
+		return fmt.Errorf("rollback: query applied migrations: %w", result.Error)
+	}
 
 	if len(applied) == 0 {
 		k.logger.Info("no migrations to rollback", "module", moduleID)
