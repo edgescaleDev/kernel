@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"io/fs"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -153,6 +154,49 @@ func TestRollback_InvalidSchema(t *testing.T) {
 	err := k.Rollback("badschema", 1)
 	if err == nil {
 		t.Fatal("Rollback with invalid schema name should return error")
+	}
+}
+
+// TestRollback_DownFileNameDerivation verifies that .down.sql filenames are
+// derived correctly from their corresponding .up.sql filenames. This is the
+// logic Rollback() relies on to locate the rollback script.
+func TestRollback_DownFileNameDerivation(t *testing.T) {
+	cases := []struct {
+		upFile   string
+		wantDown string
+	}{
+		{"001_init.up.sql", "001_init.down.sql"},
+		{"002_add_users.up.sql", "002_add_users.down.sql"},
+		{"010_schema_change.up.sql", "010_schema_change.down.sql"},
+	}
+	for _, tc := range cases {
+		got := strings.Replace(tc.upFile, ".up.sql", ".down.sql", 1)
+		if got != tc.wantDown {
+			t.Errorf("down name for %q = %q, want %q", tc.upFile, got, tc.wantDown)
+		}
+	}
+}
+
+// TestKernelRollback_DownFilesPresent verifies that every kernel .up.sql
+// migration has a matching .down.sql file, so `kernel migrate rollback
+// --module kernel` can always succeed.
+func TestKernelRollback_DownFilesPresent(t *testing.T) {
+	migrations := KernelMigrations()
+
+	upFiles, err := internal.CollectMigrationFiles(migrations)
+	if err != nil {
+		t.Fatalf("CollectMigrationFiles: %v", err)
+	}
+	downFiles, err := internal.CollectDownFiles(migrations)
+	if err != nil {
+		t.Fatalf("CollectDownFiles: %v", err)
+	}
+
+	for _, up := range upFiles {
+		down := strings.Replace(up, ".up.sql", ".down.sql", 1)
+		if !downFiles[down] {
+			t.Errorf("kernel migration %q has no matching %q rollback file", up, down)
+		}
 	}
 }
 

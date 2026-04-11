@@ -32,10 +32,12 @@ func (k *Kernel) setupRouter() {
 	v1 := k.engine.Group("/v1")
 	v1.Use(k.authenticate())
 
+	// /_kernel is the kernel-owned management namespace.
+	// User profile / identity endpoints (e.g. /me) are intentionally absent here
+	// and belong to the IAM module, not the kernel.
 	kernelAPI := k.engine.Group("/_kernel")
 	{
 		kernelAPI.Use(k.authenticate())
-		kernelAPI.GET("/me", k.handleMe)
 		kernelAPI.GET("/modules", k.handleListModules)
 		kernelAPI.GET("/modules/active", k.handleActiveModules)
 		kernelAPI.GET("/permissions", k.handleListPermissions)

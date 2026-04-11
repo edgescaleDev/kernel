@@ -13,10 +13,12 @@ func TestKernelMigrations_Embedded(t *testing.T) {
 		t.Fatal("KernelMigrations() returned nil")
 	}
 
-	// Verify only the 2 kernel-owned migration files remain.
+	// Verify both up and down migration files are present.
 	expected := []string{
 		"001_schema_migrations.up.sql",
+		"001_schema_migrations.down.sql",
 		"002_module_registry.up.sql",
+		"002_module_registry.down.sql",
 	}
 
 	for _, name := range expected {

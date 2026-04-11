@@ -98,52 +98,6 @@ func (k *Kernel) handleListModules(c *gin.Context) {
 	})
 }
 
-// handleMe returns the authenticated user's profile, permissions,
-// and active modules for the current org.
-// GET /_kernel/me
-func (k *Kernel) handleMe(c *gin.Context) {
-	response := gin.H{
-		"authenticated": true,
-	}
-
-	// Include permissions if loaded.
-	if permsVal, exists := c.Get("permissions"); exists {
-		if ps, ok := permsVal.(*sdk.PermissionSet); ok {
-			response["permissions"] = ps.Permissions()
-		}
-	}
-
-	// Include org_id if resolved.
-	if orgID, exists := c.Get("org_id"); exists {
-		response["org_id"] = orgID
-	}
-
-	// Attempt to load full user profile via any module that provides
-	// an sdk.UserProfileReader (e.g., IAM). The kernel never imports the
-	// module directly — Go's implicit interface satisfaction handles it.
-	if reader, err := sdk.GetReader[sdk.UserProfileReader](k.readers, "iam"); err == nil {
-		subject := c.GetString("user_id")
-		provider := c.GetString("auth_provider")
-
-		if user, err := reader.GetUserByExternalID(c.Request.Context(), provider, subject); err == nil {
-			response["user"] = user
-		} else {
-			// Fallback: just include user_id if fetch fails.
-			response["user_id"] = subject
-		}
-	} else {
-		// Fallback: if no user profile reader is registered.
-		if userID, exists := c.Get("user_id"); exists {
-			response["user_id"] = userID
-		}
-	}
-
-	c.JSON(http.StatusOK, sdk.Envelope{
-		Success: true,
-		Result:  response,
-	})
-}
-
 // handleActiveModules returns modules that are active for the requesting org.
 // GET /_kernel/modules/active
 // Core modules are always included. Feature modules are filtered by the
