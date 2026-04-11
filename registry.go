@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"go.edgescale.dev/kernel/internal"
 )
 
 // syncRegistry upserts all registered module manifests into the
@@ -14,9 +16,9 @@ func (k *Kernel) syncRegistry() error {
 		return nil
 	}
 
-	for _, m := range k.Modules() {
+	for _, m := range k.orderedModules() {
 		manifest := m.Manifest()
-		record := ModuleRecord{
+		record := internal.ModuleRecord{
 			ID:          manifest.ID,
 			Name:        manifest.Name,
 			Version:     manifest.Version,
@@ -36,39 +38,10 @@ func (k *Kernel) syncRegistry() error {
 	return nil
 }
 
-// ModuleRecord maps to the public.module_registry table.
-type ModuleRecord struct {
-	ID          string   `gorm:"primaryKey;column:id"`
-	Name        string   `gorm:"column:name;not null"`
-	Version     string   `gorm:"column:version;not null"`
-	Type        string   `gorm:"column:type;not null"`
-	SchemaName  string   `gorm:"column:schema_name;not null"`
-	Description string   `gorm:"column:description"`
-	DependsOn   []string `gorm:"column:depends_on;type:text[];serializer:json"`
-}
-
-func (ModuleRecord) TableName() string {
-	return "module_registry"
-}
-
-// ModuleActivation maps to the public.module_activations table.
-type ModuleActivation struct {
-	ModuleID    string    `gorm:"primaryKey;column:module_id"`
-	OrgID       string    `gorm:"primaryKey;column:org_id;type:uuid"`
-	Active      bool      `gorm:"column:active;default:true"`
-	ActivatedBy string    `gorm:"column:activated_by;type:uuid"`
-	CreatedAt   time.Time `gorm:"column:created_at;autoCreateTime"`
-	UpdatedAt   time.Time `gorm:"column:updated_at;autoUpdateTime"`
-}
-
-func (ModuleActivation) TableName() string {
-	return "module_activations"
-}
-
-// IsModuleActive checks whether a module is active for the given org.
+// isModuleActive checks whether a module is active for the given org.
 // Core modules always return true. Feature/integration modules check
 // the module_activations table (Redis cached).
-func (k *Kernel) IsModuleActive(moduleID string, orgID string) bool {
+func (k *Kernel) isModuleActive(moduleID string, orgID string) bool {
 	manifest, exists := k.manifests[moduleID]
 	if !exists {
 		return false
@@ -89,7 +62,7 @@ func (k *Kernel) IsModuleActive(moduleID string, orgID string) bool {
 	}
 
 	// Fall back to database.
-	var activation ModuleActivation
+	var activation internal.ModuleActivation
 	result := k.db.Where("module_id = ? AND org_id = ?", moduleID, orgID).First(&activation)
 	if result.Error != nil {
 		return false

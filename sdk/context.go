@@ -51,6 +51,12 @@ type Context struct {
 	// Outbox provides durable event publishing within the same database transaction.
 	Outbox OutboxWriter
 
+	// Operations provides long-running operation tracking.
+	Operations OperationTracker
+
+	// Features provides feature flag checking.
+	Features FeatureFlags
+
 	// readers is the internal reader registry, accessed via GetReader[T]().
 	readers *ReaderRegistry
 

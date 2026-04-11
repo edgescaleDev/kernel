@@ -36,7 +36,7 @@ func (k *Kernel) handleReadyz(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ready"})
 }
 
-// moduleInfo is the JSON shape returned by the /v1/modules endpoints.
+// moduleInfo is the JSON shape returned by the /_kernel/modules endpoints.
 type moduleInfo struct {
 	ID          string   `json:"id"`
 	Name        string   `json:"name"`
@@ -59,7 +59,7 @@ func toModuleInfo(m sdk.Manifest) moduleInfo {
 	}
 }
 
-// permissionInfo is the JSON shape returned by the /v1/permissions endpoint.
+// permissionInfo is the JSON shape returned by the /_kernel/permissions endpoint.
 type permissionInfo struct {
 	Module string `json:"module"`
 	Key    string `json:"key"`
@@ -67,10 +67,10 @@ type permissionInfo struct {
 }
 
 // handleListPermissions returns all permissions declared by all registered modules.
-// GET /v1/permissions
+// GET /_kernel/permissions
 func (k *Kernel) handleListPermissions(c *gin.Context) {
 	var perms []permissionInfo
-	for _, m := range k.Modules() {
+	for _, m := range k.orderedModules() {
 		manifest := m.Manifest()
 		for _, p := range manifest.Permissions {
 			perms = append(perms, permissionInfo{
@@ -85,10 +85,10 @@ func (k *Kernel) handleListPermissions(c *gin.Context) {
 }
 
 // handleListModules returns metadata for all registered modules.
-// GET /v1/modules
+// GET /_kernel/modules
 func (k *Kernel) handleListModules(c *gin.Context) {
 	modules := make([]moduleInfo, 0, len(k.modules))
-	for _, m := range k.Modules() {
+	for _, m := range k.orderedModules() {
 		modules = append(modules, toModuleInfo(m.Manifest()))
 	}
 
@@ -99,20 +99,20 @@ func (k *Kernel) handleListModules(c *gin.Context) {
 }
 
 // handleActiveModules returns modules that are active for the requesting org.
-// GET /v1/modules/active
+// GET /_kernel/modules/active
 // Core modules are always included. Feature modules are filtered by the
-// module_activations table via IsModuleActive (Redis cached).
+// module_activations table via isModuleActive (Redis cached).
 func (k *Kernel) handleActiveModules(c *gin.Context) {
 	orgIDVal, hasOrg := c.Get("org_id")
 
 	modules := make([]moduleInfo, 0, len(k.modules))
-	for _, m := range k.Modules() {
+	for _, m := range k.orderedModules() {
 		manifest := m.Manifest()
 
 		// If we have an org context, filter by activation status.
 		if hasOrg {
 			orgID, _ := orgIDVal.(string)
-			if !k.IsModuleActive(manifest.ID, orgID) {
+			if !k.isModuleActive(manifest.ID, orgID) {
 				continue
 			}
 		}

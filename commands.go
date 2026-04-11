@@ -12,6 +12,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
+
+	"go.edgescale.dev/kernel/internal"
+	"go.edgescale.dev/kernel/sdk"
 )
 
 // buildRootCommand constructs the Cobra command tree for the kernel.
@@ -94,7 +97,7 @@ func (k *Kernel) migrateStatusCommand() *cobra.Command {
 				return err
 			}
 
-			var applied []SchemaMigration
+			var applied []internal.SchemaMigration
 			if err := k.db.Order("module_id, version ASC").Find(&applied).Error; err != nil {
 				return fmt.Errorf("query migrations: %w", err)
 			}
@@ -174,7 +177,7 @@ func (k *Kernel) moduleListCommand() *cobra.Command {
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
 			fmt.Fprintln(w, "ID\tNAME\tVERSION\tTYPE\tSCHEMA")
 			fmt.Fprintln(w, "──\t────\t───────\t────\t──────")
-			for _, m := range k.Modules() {
+			for _, m := range k.orderedModules() {
 				manifest := m.Manifest()
 				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
 					manifest.ID, manifest.Name, manifest.Version,
@@ -273,9 +276,9 @@ func (k *Kernel) moduleStatusCommand() *cobra.Command {
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
 			fmt.Fprintln(w, "MODULE\tTYPE\tACTIVE")
 			fmt.Fprintln(w, "──────\t────\t──────")
-			for _, m := range k.Modules() {
+			for _, m := range k.orderedModules() {
 				manifest := m.Manifest()
-				active := k.IsModuleActive(manifest.ID, parsedOrg.String())
+				active := k.isModuleActive(manifest.ID, parsedOrg.String())
 				fmt.Fprintf(w, "%s\t%s\t%v\n",
 					manifest.ID, manifest.Type.String(), active)
 			}
@@ -293,7 +296,7 @@ func (k *Kernel) moduleDepsCommand() *cobra.Command {
 		Use:   "deps",
 		Short: "Show the module dependency graph",
 		Run: func(cmd *cobra.Command, args []string) {
-			manifests := k.Manifests()
+			manifests := k.allManifests()
 
 			// Sort by ID for stable output.
 			ids := make([]string, 0, len(manifests))
@@ -414,7 +417,7 @@ func (k *Kernel) orgListCommand() *cobra.Command {
 			}
 
 			// Query distinct org_ids from module_activations.
-			var activations []ModuleActivation
+			var activations []internal.ModuleActivation
 			if err := k.db.Select("DISTINCT org_id").Where("active = ?", true).Find(&activations).Error; err != nil {
 				return fmt.Errorf("query orgs: %w", err)
 			}
@@ -425,7 +428,7 @@ func (k *Kernel) orgListCommand() *cobra.Command {
 
 			// Group by org.
 			orgModules := make(map[string]int)
-			var allActivations []ModuleActivation
+			var allActivations []internal.ModuleActivation
 			k.db.Where("active = ?", true).Find(&allActivations)
 			for _, a := range allActivations {
 				orgModules[a.OrgID]++
@@ -475,46 +478,25 @@ func (k *Kernel) platformGrantCommand() *cobra.Command {
 				return err
 			}
 
+			if k.adminResolver == nil {
+				return fmt.Errorf("platform admin not configured — register an IAM module with admin support")
+			}
+
 			userID, err := uuid.Parse(args[0])
 			if err != nil {
 				return fmt.Errorf("invalid user ID: %w", err)
 			}
 
-			if err := k.loadPlatformOrg(); err != nil {
-				return err
-			}
-			if k.platformOrgID == uuid.Nil {
-				return fmt.Errorf("platform org not found — run 'kernel migrate' first")
-			}
-
-			// Find the role in the platform org.
-			var roleID uuid.UUID
-			if err := k.db.Raw(
-				"SELECT id FROM module_iam.roles WHERE org_id = ? AND slug = ? AND deleted_at IS NULL",
-				k.platformOrgID, roleName,
-			).Scan(&roleID).Error; err != nil || roleID == uuid.Nil {
-				return fmt.Errorf("platform role slug %q not found", roleName)
+			// Delegate to the AdminResolver if it supports role management.
+			if mgr, ok := k.adminResolver.(sdk.PlatformManager); ok {
+				if err := mgr.GrantRole(context.Background(), userID, roleName); err != nil {
+					return err
+				}
+				fmt.Printf("granted platform role %q to user %s\n", roleName, userID)
+				return nil
 			}
 
-			// Ensure user is a member of the platform org.
-			k.db.Exec(`
-				INSERT INTO public.org_members (org_id, user_id)
-				VALUES (?, ?)
-				ON CONFLICT (org_id, user_id) DO NOTHING
-			`, k.platformOrgID, userID)
-
-			// Assign the role.
-			result := k.db.Exec(`
-				INSERT INTO module_iam.user_roles (org_id, user_id, role_id)
-				VALUES (?, ?, ?)
-				ON CONFLICT (org_id, user_id, role_id) DO NOTHING
-			`, k.platformOrgID, userID, roleID)
-			if result.Error != nil {
-				return fmt.Errorf("grant role: %w", result.Error)
-			}
-
-			fmt.Printf("granted platform role %q to user %s\n", roleName, userID)
-			return nil
+			return fmt.Errorf("admin resolver does not support role management")
 		},
 	}
 
@@ -532,32 +514,24 @@ func (k *Kernel) platformRevokeCommand() *cobra.Command {
 				return err
 			}
 
+			if k.adminResolver == nil {
+				return fmt.Errorf("platform admin not configured — register an IAM module with admin support")
+			}
+
 			userID, err := uuid.Parse(args[0])
 			if err != nil {
 				return fmt.Errorf("invalid user ID: %w", err)
 			}
 
-			if err := k.loadPlatformOrg(); err != nil {
-				return err
+			if mgr, ok := k.adminResolver.(sdk.PlatformManager); ok {
+				if err := mgr.RevokeAllRoles(context.Background(), userID); err != nil {
+					return err
+				}
+				fmt.Printf("revoked all platform roles from user %s\n", userID)
+				return nil
 			}
-			if k.platformOrgID == uuid.Nil {
-				return fmt.Errorf("platform org not found — run 'kernel migrate' first")
-			}
 
-			// Remove all platform role assignments.
-			k.db.Exec(
-				"DELETE FROM module_iam.user_roles WHERE org_id = ? AND user_id = ?",
-				k.platformOrgID, userID,
-			)
-
-			// Remove platform org membership.
-			k.db.Exec(
-				"DELETE FROM public.org_members WHERE org_id = ? AND user_id = ?",
-				k.platformOrgID, userID,
-			)
-
-			fmt.Printf("revoked all platform roles from user %s\n", userID)
-			return nil
+			return fmt.Errorf("admin resolver does not support role management")
 		},
 	}
 
@@ -573,41 +547,27 @@ func (k *Kernel) platformListCommand() *cobra.Command {
 				return err
 			}
 
-			if err := k.loadPlatformOrg(); err != nil {
-				return err
-			}
-			if k.platformOrgID == uuid.Nil {
-				return fmt.Errorf("platform org not found — run 'kernel migrate' first")
+			if k.adminResolver == nil {
+				return fmt.Errorf("platform admin not configured — register an IAM module with admin support")
 			}
 
-			type platformAdmin struct {
-				UserID   string `gorm:"column:user_id"`
-				Name     string `gorm:"column:name"`
-				Email    string `gorm:"column:email"`
-				RoleName string `gorm:"column:role_name"`
+			if mgr, ok := k.adminResolver.(sdk.PlatformManager); ok {
+				admins, err := mgr.ListAdmins(context.Background())
+				if err != nil {
+					return err
+				}
+
+				w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
+				fmt.Fprintln(w, "USER ID\tNAME\tEMAIL\tROLE")
+				fmt.Fprintln(w, "───────\t────\t─────\t────")
+				for _, a := range admins {
+					fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", a.UserID, a.Name, a.Email, a.Role)
+				}
+				return w.Flush()
 			}
 
-			var admins []platformAdmin
-			k.db.Raw(`
-				SELECT
-					u.id AS user_id,
-					u.name->>'en' AS name,
-					u.email,
-					r.name->>'en' AS role_name
-				FROM module_iam.user_roles ur
-				JOIN users u ON u.id = ur.user_id
-				JOIN module_iam.roles r ON r.id = ur.role_id
-				WHERE ur.org_id = ?
-				ORDER BY u.name->>'en', r.name->>'en'
-			`, k.platformOrgID).Scan(&admins)
-
-			w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-			fmt.Fprintln(w, "USER ID\tNAME\tEMAIL\tROLE")
-			fmt.Fprintln(w, "───────\t────\t─────\t────")
-			for _, a := range admins {
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", a.UserID, a.Name, a.Email, a.RoleName)
-			}
-			return w.Flush()
+			return fmt.Errorf("admin resolver does not support listing admins")
 		},
 	}
 }
+

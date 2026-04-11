@@ -4,11 +4,9 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io/fs"
-	"path/filepath"
-	"slices"
 	"strings"
-	"time"
 
+	"go.edgescale.dev/kernel/internal"
 	"go.edgescale.dev/kernel/sdk"
 	"gorm.io/gorm"
 )
@@ -23,7 +21,7 @@ func (k *Kernel) Migrate() error {
 	k.logger.Info("starting migrations")
 
 	// Auto-create the migrations tracking table if it doesn't exist.
-	if err := k.db.AutoMigrate(&SchemaMigration{}); err != nil {
+	if err := k.db.AutoMigrate(&internal.SchemaMigration{}); err != nil {
 		return fmt.Errorf("create schema_migrations: %w", err)
 	}
 
@@ -32,7 +30,7 @@ func (k *Kernel) Migrate() error {
 		return fmt.Errorf("migrate kernel: %w", err)
 	}
 
-	for _, m := range k.Modules() {
+	for _, m := range k.orderedModules() {
 		manifest := m.Manifest()
 		migrations := m.Migrations()
 		if migrations == nil {
@@ -63,7 +61,7 @@ func (k *Kernel) Migrate() error {
 // runModuleMigrations applies SQL migration files for a single module.
 // Files are sorted by name and only unapplied migrations are executed.
 func (k *Kernel) runModuleMigrations(moduleID, schema string, migrations fs.FS) error {
-	files, err := collectMigrationFiles(migrations)
+	files, err := internal.CollectMigrationFiles(migrations)
 	if err != nil {
 		return fmt.Errorf("read migrations: %w", err)
 	}
@@ -72,7 +70,7 @@ func (k *Kernel) runModuleMigrations(moduleID, schema string, migrations fs.FS) 
 	}
 
 	// Find already-applied migrations.
-	var applied []SchemaMigration
+	var applied []internal.SchemaMigration
 	k.db.Where("module_id = ?", moduleID).Order("version ASC").Find(&applied)
 	appliedSet := make(map[int]bool, len(applied))
 	for _, a := range applied {
@@ -105,7 +103,7 @@ func (k *Kernel) runModuleMigrations(moduleID, schema string, migrations fs.FS) 
 				return fmt.Errorf("execute %s: %w", file, err)
 			}
 
-			record := SchemaMigration{
+			record := internal.SchemaMigration{
 				ModuleID: moduleID,
 				Version:  version,
 				Filename: file,
@@ -141,7 +139,7 @@ func (k *Kernel) Rollback(moduleID string, steps int) error {
 	if moduleID == "kernel" {
 		manifest = sdk.Manifest{ID: "kernel", Schema: "public"}
 	} else {
-		for _, m := range k.Modules() {
+		for _, m := range k.orderedModules() {
 			if m.Manifest().ID == moduleID {
 				targetModule = m
 				manifest = m.Manifest()
@@ -170,7 +168,7 @@ func (k *Kernel) Rollback(moduleID string, steps int) error {
 	}
 
 	// Find applied migrations in reverse order.
-	var applied []SchemaMigration
+	var applied []internal.SchemaMigration
 	k.db.Where("module_id = ?", moduleID).Order("version DESC").Find(&applied)
 
 	if len(applied) == 0 {
@@ -183,7 +181,7 @@ func (k *Kernel) Rollback(moduleID string, steps int) error {
 	}
 
 	// Collect available .down.sql files.
-	downFiles, err := collectDownFiles(migrationFS)
+	downFiles, err := internal.CollectDownFiles(migrationFS)
 	if err != nil {
 		return fmt.Errorf("rollback: read down files: %w", err)
 	}
@@ -221,7 +219,7 @@ func (k *Kernel) Rollback(moduleID string, steps int) error {
 			}
 
 			if err := tx.Where("module_id = ? AND version = ?", moduleID, migration.Version).
-				Delete(&SchemaMigration{}).Error; err != nil {
+				Delete(&internal.SchemaMigration{}).Error; err != nil {
 				return fmt.Errorf("delete migration record %s: %w", downFilename, err)
 			}
 			return nil
@@ -237,59 +235,4 @@ func (k *Kernel) Rollback(moduleID string, steps int) error {
 
 	k.logger.Info("rollback complete", "module", moduleID, "steps", steps)
 	return nil
-}
-
-// collectMigrationFiles returns all .up.sql files from the FS, sorted by name.
-func collectMigrationFiles(migrations fs.FS) ([]string, error) {
-	var files []string
-	err := fs.WalkDir(migrations, ".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if strings.HasSuffix(path, ".up.sql") {
-			files = append(files, path)
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	slices.SortFunc(files, func(a, b string) int {
-		return strings.Compare(filepath.Base(a), filepath.Base(b))
-	})
-	return files, nil
-}
-
-// collectDownFiles returns a set of all .down.sql filenames available in the FS.
-func collectDownFiles(migrations fs.FS) (map[string]bool, error) {
-	files := make(map[string]bool)
-	err := fs.WalkDir(migrations, ".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if strings.HasSuffix(path, ".down.sql") {
-			files[path] = true
-		}
-		return nil
-	})
-	return files, err
-}
-
-// SchemaMigration tracks applied migrations per module.
-type SchemaMigration struct {
-	ModuleID  string    `gorm:"primaryKey;column:module_id"`
-	Version   int       `gorm:"primaryKey;column:version"`
-	Filename  string    `gorm:"column:filename;not null"`
-	Checksum  string    `gorm:"column:checksum;not null"`
-	AppliedAt time.Time `gorm:"column:applied_at;autoCreateTime"`
-}
-
-func (SchemaMigration) TableName() string {
-	return "schema_migrations"
 }

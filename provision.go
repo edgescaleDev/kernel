@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.edgescale.dev/kernel/internal"
 	"go.edgescale.dev/kernel/sdk"
 	"gorm.io/gorm"
 )
@@ -15,13 +16,13 @@ import (
 func (k *Kernel) ProvisionOrg(ctx context.Context, orgID uuid.UUID, activatedBy uuid.UUID) error {
 	return k.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// Activate core modules automatically.
-		for _, m := range k.Modules() {
+		for _, m := range k.orderedModules() {
 			manifest := m.Manifest()
 			if !manifest.Type.IsCore() {
 				continue
 			}
 
-			activation := ModuleActivation{
+			activation := internal.ModuleActivation{
 				ModuleID:    manifest.ID,
 				OrgID:       orgID.String(),
 				Active:      true,
@@ -55,7 +56,7 @@ func (k *Kernel) ProvisionOrg(ctx context.Context, orgID uuid.UUID, activatedBy 
 // Does NOT delete data — that's handled by retention policies.
 func (k *Kernel) DeprovisionOrg(ctx context.Context, orgID uuid.UUID) error {
 	result := k.db.WithContext(ctx).
-		Model(&ModuleActivation{}).
+		Model(&internal.ModuleActivation{}).
 		Where("org_id = ?", orgID.String()).
 		Update("active", false)
 
@@ -65,7 +66,7 @@ func (k *Kernel) DeprovisionOrg(ctx context.Context, orgID uuid.UUID) error {
 
 	// Invalidate Redis cache for all modules.
 	if k.redis != nil {
-		for _, m := range k.Modules() {
+		for _, m := range k.orderedModules() {
 			cacheKey := fmt.Sprintf("module:%s:active:%s", m.Manifest().ID, orgID)
 			k.redis.Del(ctx, cacheKey)
 		}
@@ -80,7 +81,7 @@ func (k *Kernel) DeprovisionOrg(ctx context.Context, orgID uuid.UUID) error {
 
 // ActivateModule enables a specific module for an organization.
 func (k *Kernel) ActivateModule(ctx context.Context, moduleID string, orgID uuid.UUID, activatedBy uuid.UUID) error {
-	activation := ModuleActivation{
+	activation := internal.ModuleActivation{
 		ModuleID:    moduleID,
 		OrgID:       orgID.String(),
 		Active:      true,
@@ -91,7 +92,7 @@ func (k *Kernel) ActivateModule(ctx context.Context, moduleID string, orgID uuid
 
 	result := k.db.WithContext(ctx).
 		Where("module_id = ? AND org_id = ?", moduleID, orgID.String()).
-		Assign(ModuleActivation{Active: true, ActivatedBy: activatedBy.String(), UpdatedAt: time.Now()}).
+		Assign(internal.ModuleActivation{Active: true, ActivatedBy: activatedBy.String(), UpdatedAt: time.Now()}).
 		FirstOrCreate(&activation)
 
 	if result.Error != nil {
@@ -111,7 +112,7 @@ func (k *Kernel) ActivateModule(ctx context.Context, moduleID string, orgID uuid
 // DeactivateModule disables a specific module for an organization.
 func (k *Kernel) DeactivateModule(ctx context.Context, moduleID string, orgID uuid.UUID) error {
 	result := k.db.WithContext(ctx).
-		Model(&ModuleActivation{}).
+		Model(&internal.ModuleActivation{}).
 		Where("module_id = ? AND org_id = ?", moduleID, orgID.String()).
 		Update("active", false)
 
@@ -132,7 +133,7 @@ func (k *Kernel) DeactivateModule(ctx context.Context, moduleID string, orgID uu
 // coreModuleCount returns the number of core modules registered.
 func (k *Kernel) coreModuleCount() int {
 	count := 0
-	for _, m := range k.Modules() {
+	for _, m := range k.orderedModules() {
 		if m.Manifest().Type.IsCore() {
 			count++
 		}

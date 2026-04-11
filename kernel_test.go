@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"testing"
 
+	"go.edgescale.dev/kernel/internal"
 	"go.edgescale.dev/kernel/sdk"
 )
 
@@ -124,9 +125,9 @@ func TestModules_BeforeBoot(t *testing.T) {
 	k.MustRegister(newStub("a"))
 	k.MustRegister(newStub("b"))
 
-	modules := k.Modules()
+	modules := k.orderedModules()
 	if len(modules) != 2 {
-		t.Errorf("Modules() before Boot = %d, want 2", len(modules))
+		t.Errorf("orderedModules() before Boot = %d, want 2", len(modules))
 	}
 }
 
@@ -155,7 +156,7 @@ func TestInstallFallbacks(t *testing.T) {
 func TestInstallFallbacks_DoesNotOverrideExplicit(t *testing.T) {
 	k := New(DefaultConfig())
 
-	custom := noopEventBus{}
+	custom := internal.NoopEventBus{}
 	k.SetEventBus(custom)
 	k.installFallbacks()
 
@@ -254,8 +255,8 @@ func TestValidPermissionKey(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		if got := k.ValidPermissionKey(tt.key); got != tt.want {
-			t.Errorf("ValidPermissionKey(%q) = %v, want %v", tt.key, got, tt.want)
+		if got := k.validPermissionKey(tt.key); got != tt.want {
+			t.Errorf("validPermissionKey(%q) = %v, want %v", tt.key, got, tt.want)
 		}
 	}
 }

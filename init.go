@@ -11,7 +11,7 @@ import (
 // topological dependency order. This ensures that when a module initializes,
 // all its dependencies are already available.
 func (k *Kernel) initModules() error {
-	for _, m := range k.Modules() {
+	for _, m := range k.orderedModules() {
 		manifest := m.Manifest()
 		moduleID := manifest.ID
 
@@ -54,6 +54,17 @@ func (k *Kernel) buildContext(manifest sdk.Manifest) sdk.Context {
 	moduleID := manifest.ID
 	logger := slog.Default().With("module", moduleID)
 
+	// Use pluggable implementations with noop fallbacks.
+	audit := k.auditLogger
+	if audit == nil {
+		audit = &sdk.TestAuditLogger{}
+	}
+
+	var outbox sdk.OutboxWriter
+	if k.outboxWriter != nil {
+		outbox = k.outboxWriter
+	}
+
 	ctx := sdk.Context{
 		PublicDB:           k.db,
 		Logger:             logger,
@@ -62,10 +73,12 @@ func (k *Kernel) buildContext(manifest sdk.Manifest) sdk.Context {
 		Search:             k.searchEngine,
 		Hooks:              k.hooks,
 		IdentityProvider:   k.identityProvider,
-		Audit:              newAuditLogger(k.db, moduleID),
-		Outbox:             &outboxWriter{db: k.db, moduleID: moduleID},
+		Audit:              audit,
+		Outbox:             outbox,
+		Operations:         k.operationTracker,
+		Features:           k.featureFlags,
 		ServiceID:          moduleID,
-		ValidPermissionKey: k.ValidPermissionKey,
+		ValidPermissionKey: k.validPermissionKey,
 	}
 	ctx.SetReaders(k.readers)
 
@@ -83,3 +96,4 @@ func (k *Kernel) buildContext(manifest sdk.Manifest) sdk.Context {
 
 	return ctx
 }
+
