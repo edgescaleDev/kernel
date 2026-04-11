@@ -22,18 +22,24 @@ func (k *Kernel) initModules() error {
 			return fmt.Errorf("init %q: %w", moduleID, err)
 		}
 
-		// Let the module register its EventBus subscriptions.
-		m.RegisterEvents(k.bus)
-
-		// Let the module register its sync hooks.
-		m.RegisterHooks(k.hooks)
-
-		// Let the module register Temporal workflows/activities.
-		if k.workflows != nil {
-			m.RegisterWorkflows(k.workflows)
+		// Optional: let the module register its EventBus subscriptions.
+		if em, ok := m.(sdk.EventModule); ok {
+			em.RegisterEvents(k.bus)
 		}
-		if k.activities != nil {
-			m.RegisterActivities(k.activities)
+
+		// Optional: let the module register its sync hooks.
+		if hm, ok := m.(sdk.HookModule); ok {
+			hm.RegisterHooks(k.hooks)
+		}
+
+		// Optional: let the module register Temporal workflows/activities.
+		if wm, ok := m.(sdk.WorkflowModule); ok {
+			if k.workflows != nil {
+				wm.RegisterWorkflows(k.workflows)
+			}
+			if k.activities != nil {
+				wm.RegisterActivities(k.activities)
+			}
 		}
 
 		k.logger.Info("module ready", "id", moduleID)

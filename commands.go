@@ -81,6 +81,7 @@ func (k *Kernel) migrateCommand() *cobra.Command {
 	}
 
 	cmd.AddCommand(k.migrateStatusCommand())
+	cmd.AddCommand(k.migrateRollbackCommand())
 	return cmd
 }
 
@@ -108,6 +109,41 @@ func (k *Kernel) migrateStatusCommand() *cobra.Command {
 			return w.Flush()
 		},
 	}
+}
+
+func (k *Kernel) migrateRollbackCommand() *cobra.Command {
+	var moduleID string
+	var steps int
+
+	cmd := &cobra.Command{
+		Use:   "rollback",
+		Short: "Rollback the last N migrations for a module",
+		Long: `Reverts applied migrations by executing the corresponding .down.sql files.
+Each migration is rolled back in its own transaction. If a .down.sql file
+is missing, the rollback stops with an error.
+
+Examples:
+  kernel migrate rollback --module billing
+  kernel migrate rollback --module billing --steps 3
+  kernel migrate rollback --module kernel --steps 1`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := k.Boot(); err != nil {
+				return err
+			}
+
+			if err := k.Rollback(moduleID, steps); err != nil {
+				return err
+			}
+
+			fmt.Printf("rolled back %d migration(s) for module %q\n", steps, moduleID)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&moduleID, "module", "", "module ID to rollback (required)")
+	cmd.Flags().IntVar(&steps, "steps", 1, "number of migrations to rollback")
+	cmd.MarkFlagRequired("module")
+	return cmd
 }
 
 // ── module ───────────────────────────────────────────────────────────────────

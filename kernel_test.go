@@ -26,15 +26,10 @@ func newStub(id string, deps ...string) *stubModule {
 	}
 }
 
-func (s *stubModule) Manifest() sdk.Manifest                    { return s.manifest }
-func (s *stubModule) Migrations() fs.FS                         { return nil }
-func (s *stubModule) Init(_ sdk.Context) error                  { return nil }
-func (s *stubModule) RegisterRoutes(_ *sdk.Router)              {}
-func (s *stubModule) RegisterEvents(_ sdk.EventBus)             {}
-func (s *stubModule) RegisterHooks(_ *sdk.HookRegistry)         {}
-func (s *stubModule) RegisterWorkflows(_ sdk.WorkflowRegistry)  {}
-func (s *stubModule) RegisterActivities(_ sdk.ActivityRegistry) {}
-func (s *stubModule) Shutdown() error                           { return nil }
+func (s *stubModule) Manifest() sdk.Manifest   { return s.manifest }
+func (s *stubModule) Migrations() fs.FS        { return nil }
+func (s *stubModule) Init(_ sdk.Context) error { return nil }
+func (s *stubModule) Shutdown() error          { return nil }
 
 // --- Kernel tests ---
 
@@ -85,6 +80,30 @@ func TestRegister_DuplicateReturnsError(t *testing.T) {
 	err := k.Register(newStub("orders"))
 	if err == nil {
 		t.Error("Register duplicate should return error")
+	}
+}
+
+func TestRegister_ReservedIDReturnsError(t *testing.T) {
+	tests := []struct {
+		id      string
+		wantErr bool
+	}{
+		{"", true},
+		{"_internal", true},
+		{"_kernel", true},
+		{"kernel", true},
+		{"billing", false},
+		{"modules", false}, // allowed as module ID — kernel routes are under /_kernel/
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.id, func(t *testing.T) {
+			k := New(DefaultConfig())
+			err := k.Register(newStub(tt.id))
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Register(%q) error = %v, wantErr %v", tt.id, err, tt.wantErr)
+			}
+		})
 	}
 }
 

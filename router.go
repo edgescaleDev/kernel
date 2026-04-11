@@ -29,16 +29,25 @@ func (k *Kernel) setupRouter() {
 	k.engine.GET("/healthz", k.handleHealthz)
 	k.engine.GET("/readyz", k.handleReadyz)
 
-	// Authenticated kernel API routes.
 	v1 := k.engine.Group("/v1")
 	v1.Use(k.authenticate())
-	v1.GET("/me", k.handleMe)
-	v1.GET("/modules", k.handleListModules)
-	v1.GET("/modules/active", k.handleActiveModules)
-	v1.GET("/permissions", k.handleListPermissions)
+
+	kernelAPI := k.engine.Group("/_kernel")
+	{
+		kernelAPI.Use(k.authenticate())
+		kernelAPI.GET("/modules", k.handleListModules)
+		kernelAPI.GET("/modules/active", k.handleActiveModules)
+		kernelAPI.GET("/permissions", k.handleListPermissions)
+	}
 
 	// Mount each module's routes under /v1/{module_id}/ and /v2/{module_id}/.
 	for _, m := range k.Modules() {
+		// Only modules that implement HttpModule get routes mounted.
+		hm, ok := m.(sdk.HttpModule)
+		if !ok {
+			continue
+		}
+
 		manifest := m.Manifest()
 		moduleID := manifest.ID
 
@@ -68,7 +77,7 @@ func (k *Kernel) setupRouter() {
 			router = sdk.NewRouter(authenticated, v2Auth, public, k.checkPermission, moduleID)
 		}
 
-		m.RegisterRoutes(router)
+		hm.RegisterRoutes(router)
 
 		routes := router.Routes()
 		k.logger.Info("mounted routes",

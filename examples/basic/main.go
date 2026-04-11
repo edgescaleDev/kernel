@@ -46,18 +46,6 @@ func (m *HelloModule) RegisterRoutes(router *sdk.Router) {
 	})
 }
 
-// RegisterEvents subscribes the module to asynchronous events.
-func (m *HelloModule) RegisterEvents(bus sdk.EventBus) {}
-
-// RegisterHooks registers synchronous interceptors across modules.
-func (m *HelloModule) RegisterHooks(hooks *sdk.HookRegistry) {}
-
-// RegisterWorkflows registers Temporal workflows.
-func (m *HelloModule) RegisterWorkflows(reg sdk.WorkflowRegistry) {}
-
-// RegisterActivities registers Temporal activities.
-func (m *HelloModule) RegisterActivities(reg sdk.ActivityRegistry) {}
-
 // Shutdown gracefully cleans up resources before exiting.
 func (m *HelloModule) Shutdown() error {
 	return nil

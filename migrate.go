@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"go.edgescale.dev/kernel/sdk"
 	"gorm.io/gorm"
 )
 
@@ -122,6 +123,122 @@ func (k *Kernel) runModuleMigrations(moduleID, schema string, migrations fs.FS) 
 	return nil
 }
 
+// Rollback reverts the last N applied migrations for a specific module.
+// Each step executes the corresponding .down.sql file in a transaction.
+// If a .down.sql file is missing, the rollback stops with an error.
+//
+// Usage:
+//
+//	kernel rollback --module billing --steps 1
+func (k *Kernel) Rollback(moduleID string, steps int) error {
+	if steps <= 0 {
+		return fmt.Errorf("rollback: steps must be > 0")
+	}
+
+	// Find the module.
+	var targetModule sdk.Module
+	var manifest sdk.Manifest
+	if moduleID == "kernel" {
+		manifest = sdk.Manifest{ID: "kernel", Schema: "public"}
+	} else {
+		for _, m := range k.Modules() {
+			if m.Manifest().ID == moduleID {
+				targetModule = m
+				manifest = m.Manifest()
+				break
+			}
+		}
+		if targetModule == nil {
+			return fmt.Errorf("rollback: module %q not registered", moduleID)
+		}
+	}
+
+	// Get the migration FS.
+	var migrationFS fs.FS
+	if moduleID == "kernel" {
+		migrationFS = KernelMigrations()
+	} else {
+		migrationFS = targetModule.Migrations()
+		if migrationFS == nil {
+			return fmt.Errorf("rollback: module %q has no migrations", moduleID)
+		}
+	}
+
+	schema := manifest.Schema
+	if schema == "" {
+		schema = "public"
+	}
+
+	// Find applied migrations in reverse order.
+	var applied []SchemaMigration
+	k.db.Where("module_id = ?", moduleID).Order("version DESC").Find(&applied)
+
+	if len(applied) == 0 {
+		k.logger.Info("no migrations to rollback", "module", moduleID)
+		return nil
+	}
+
+	if steps > len(applied) {
+		steps = len(applied)
+	}
+
+	// Collect available .down.sql files.
+	downFiles, err := collectDownFiles(migrationFS)
+	if err != nil {
+		return fmt.Errorf("rollback: read down files: %w", err)
+	}
+
+	for i := 0; i < steps; i++ {
+		migration := applied[i]
+
+		// Derive the .down.sql filename from the .up.sql filename.
+		downFilename := strings.Replace(migration.Filename, ".up.sql", ".down.sql", 1)
+
+		if _, exists := downFiles[downFilename]; !exists {
+			return fmt.Errorf(
+				"rollback: missing %s — cannot rollback version %d of module %q. "+
+					"Create the .down.sql file and rebuild.",
+				downFilename, migration.Version, moduleID,
+			)
+		}
+
+		content, err := fs.ReadFile(migrationFS, downFilename)
+		if err != nil {
+			return fmt.Errorf("rollback: read %s: %w", downFilename, err)
+		}
+
+		sql := fmt.Sprintf("SET search_path TO %s, public;\n%s", schema, string(content))
+
+		k.logger.Info("rolling back migration",
+			"module", moduleID,
+			"version", migration.Version,
+			"file", downFilename,
+		)
+
+		if err := k.db.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Exec(sql).Error; err != nil {
+				return fmt.Errorf("execute %s: %w", downFilename, err)
+			}
+
+			if err := tx.Where("module_id = ? AND version = ?", moduleID, migration.Version).
+				Delete(&SchemaMigration{}).Error; err != nil {
+				return fmt.Errorf("delete migration record %s: %w", downFilename, err)
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+
+		k.logger.Info("rolled back migration",
+			"module", moduleID,
+			"version", migration.Version,
+		)
+	}
+
+	k.logger.Info("rollback complete", "module", moduleID, "steps", steps)
+	return nil
+}
+
 // collectMigrationFiles returns all .up.sql files from the FS, sorted by name.
 func collectMigrationFiles(migrations fs.FS) ([]string, error) {
 	var files []string
@@ -144,6 +261,24 @@ func collectMigrationFiles(migrations fs.FS) ([]string, error) {
 		return strings.Compare(filepath.Base(a), filepath.Base(b))
 	})
 	return files, nil
+}
+
+// collectDownFiles returns a set of all .down.sql filenames available in the FS.
+func collectDownFiles(migrations fs.FS) (map[string]bool, error) {
+	files := make(map[string]bool)
+	err := fs.WalkDir(migrations, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if strings.HasSuffix(path, ".down.sql") {
+			files[path] = true
+		}
+		return nil
+	})
+	return files, err
 }
 
 // SchemaMigration tracks applied migrations per module.

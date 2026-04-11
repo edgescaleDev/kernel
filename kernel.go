@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/gin-gonic/gin"
@@ -86,9 +87,12 @@ func New(cfg Config) *Kernel {
 }
 
 // Register adds a compiled-in module to the kernel.
-// Must be called before Boot(). Returns an error on duplicate module IDs.
+// Must be called before Boot(). Returns an error on duplicate or reserved module IDs.
 func (k *Kernel) Register(m sdk.Module) error {
 	manifest := m.Manifest()
+	if err := validateModuleID(manifest.ID); err != nil {
+		return fmt.Errorf("kernel: %w", err)
+	}
 	if _, exists := k.manifests[manifest.ID]; exists {
 		return fmt.Errorf("kernel: duplicate module ID %q", manifest.ID)
 	}
@@ -99,6 +103,20 @@ func (k *Kernel) Register(m sdk.Module) error {
 		"version", manifest.Version,
 		"type", manifest.Type.String(),
 	)
+	return nil
+}
+
+// validateModuleID checks that a module ID won't collide with kernel routes.
+func validateModuleID(id string) error {
+	if id == "" {
+		return fmt.Errorf("module ID must not be empty")
+	}
+	if strings.HasPrefix(id, "_") {
+		return fmt.Errorf("module ID %q is reserved (starts with _)", id)
+	}
+	if id == "kernel" {
+		return fmt.Errorf("module ID %q is reserved", id)
+	}
 	return nil
 }
 

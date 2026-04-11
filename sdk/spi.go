@@ -47,42 +47,61 @@ func (t ModuleType) IsCore() bool {
 	return t == TypeCore
 }
 
-// Module is the interface that every module must implement.
+// Module is the core interface that every module must implement.
 // The kernel discovers, wires, and manages modules through this contract.
+//
+// For optional capabilities, implement the corresponding interface:
+//   - HttpModule     — exposes HTTP endpoints
+//   - EventModule    — subscribes to async events
+//   - HookModule     — registers sync interceptors
+//   - WorkflowModule — registers Temporal workflows/activities
+//
+// The kernel detects these at init time via type assertion.
 type Module interface {
-	// Manifest returns immutable metadata about this service.
+	// Manifest returns immutable metadata about this module.
 	Manifest() Manifest
 
 	// Migrations returns an embedded filesystem of SQL migration files.
-	// Files must follow the golang-migrate naming convention:
+	// Files must follow the naming convention:
 	//   {version}_{description}.up.sql   - forward migration
 	//   {version}_{description}.down.sql - rollback migration
-	// Example: 000001_create_orders.up.sql, 000001_create_orders.down.sql
+	// Return nil if the module has no migrations.
 	Migrations() fs.FS
 
 	// Init is called once at boot with a fully-wired Context.
 	// Modules should set up internal state, register readers, etc.
 	Init(ctx Context) error
 
-	// RegisterRoutes mounts HTTP routes on the service's prefix.
-	// Routes are mounted under /v1/{service_id}/ by default.
-	RegisterRoutes(router *Router)
-
-	// RegisterEvents subscribes to EventBus subjects.
-	RegisterEvents(bus EventBus)
-
-	// RegisterHooks registers sync interceptors on hook points.
-	RegisterHooks(hooks *HookRegistry)
-
-	// RegisterWorkflows registers Temporal workflows for this service.
-	RegisterWorkflows(reg WorkflowRegistry)
-
-	// RegisterActivities registers Temporal activities for this service.
-	RegisterActivities(reg ActivityRegistry)
-
 	// Shutdown performs graceful cleanup when the kernel is shutting down.
 	// Called in reverse dependency order.
 	Shutdown() error
+}
+
+// Optional capability interfaces ───────────────────────────────────────────
+// Modules implement these only when they need the capability.
+// The kernel checks for them via type assertion during initialization.
+// A single module can implement any combination of these.
+
+// HttpModule is implemented by modules that expose http endpoints.
+type HttpModule interface {
+	RegisterRoutes(router *Router)
+}
+
+// EventModule is implemented by modules that subscribe to async events.
+type EventModule interface {
+	RegisterEvents(bus EventBus)
+}
+
+// HookModule is implemented by modules that register sync interceptors.
+type HookModule interface {
+	RegisterHooks(hooks *HookRegistry)
+}
+
+// WorkflowModule is implemented by modules that register Temporal
+// workflows and activities.
+type WorkflowModule interface {
+	RegisterWorkflows(reg WorkflowRegistry)
+	RegisterActivities(reg ActivityRegistry)
 }
 
 // Manifest contains immutable metadata about a service.
