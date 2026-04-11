@@ -96,4 +96,3 @@ func (k *Kernel) buildContext(manifest sdk.Manifest) sdk.Context {
 
 	return ctx
 }
-

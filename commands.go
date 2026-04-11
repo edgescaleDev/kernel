@@ -570,4 +570,3 @@ func (k *Kernel) platformListCommand() *cobra.Command {
 		},
 	}
 }
-

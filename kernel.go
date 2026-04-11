@@ -55,17 +55,17 @@ type Kernel struct {
 	readers *sdk.ReaderRegistry
 
 	// Pluggable implementations (set by consumer before Boot).
-	identityProvider   sdk.IdentityProvider
-	taskExecutor       sdk.TaskExecutor
-	searchEngine       sdk.SearchEngine
-	workflows          sdk.WorkflowRegistry
-	activities         sdk.ActivityRegistry
-	userResolver       sdk.UserResolver
-	adminResolver      sdk.AdminResolver
-	auditLogger        sdk.AuditLogger
-	outboxWriter       sdk.OutboxWriter
-	operationTracker   sdk.OperationTracker
-	featureFlags       sdk.FeatureFlags
+	identityProvider sdk.IdentityProvider
+	taskExecutor     sdk.TaskExecutor
+	searchEngine     sdk.SearchEngine
+	workflows        sdk.WorkflowRegistry
+	activities       sdk.ActivityRegistry
+	userResolver     sdk.UserResolver
+	adminResolver    sdk.AdminResolver
+	auditLogger      sdk.AuditLogger
+	outboxWriter     sdk.OutboxWriter
+	operationTracker sdk.OperationTracker
+	featureFlags     sdk.FeatureFlags
 
 	// Custom CLI commands registered by the consumer.
 	customCommands []*cobra.Command
@@ -255,8 +255,6 @@ func (k *Kernel) allManifests() map[string]sdk.Manifest {
 	maps.Copy(result, k.manifests)
 	return result
 }
-
-
 
 // validPermissionKey returns true if the given key is declared
 // by any registered module's manifest. Use this to validate
