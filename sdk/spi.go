@@ -175,8 +175,8 @@ type Permission struct {
 	// Key is the unique permission identifier (e.g., "orders.create").
 	Key string
 
-	// Label is the human-readable description (e.g., "Create orders").
-	Label string
+	// Label is the human-readable description (e.g., T("Create orders", "ar", "إنشاء طلبات")).
+	Label TranslatableField
 }
 
 // EventDef describes a public event that a service can fire.
@@ -185,7 +185,7 @@ type EventDef struct {
 	Subject string
 
 	// Description explains when this event is fired.
-	Description string
+	Description TranslatableField
 
 	// PayloadExample is a JSON schema or example payload.
 	PayloadExample string
@@ -224,10 +224,10 @@ type ConfigFieldDef struct {
 	Default any
 
 	// Label is the human-readable label for admin UIs.
-	Label string
+	Label TranslatableField
 
 	// Description is a help text displayed below the input.
-	Description string
+	Description TranslatableField
 
 	// Required indicates whether this field must be set during activation.
 	Required bool
@@ -236,7 +236,7 @@ type ConfigFieldDef struct {
 	Options []ConfigOption
 
 	// Placeholder is the hint text shown when the field is empty.
-	Placeholder string
+	Placeholder TranslatableField
 
 	// Min is the minimum value for "number" types or minimum length for "text".
 	Min *float64
@@ -246,7 +246,7 @@ type ConfigFieldDef struct {
 
 	// Group is an optional grouping label for organizing fields in the admin UI.
 	// Fields with the same Group value are rendered together under a section header.
-	Group string
+	Group TranslatableField
 
 	// SortOrder controls display order within a group.
 	SortOrder int
@@ -262,7 +262,7 @@ type ConfigOption struct {
 	Value string
 
 	// Label is the display text.
-	Label string
+	Label TranslatableField
 }
 
 // RefConfig describes which module/entity a "reference" config field links to.
@@ -283,8 +283,8 @@ type RefConfig struct {
 
 // NavItem represents a sidebar navigation entry for UI rendering.
 type NavItem struct {
-	// Label is the display text (translatable key or literal).
-	Label string
+	// Label is the display text (translatable).
+	Label TranslatableField
 
 	// Icon is the icon identifier for the UI framework.
 	Icon string

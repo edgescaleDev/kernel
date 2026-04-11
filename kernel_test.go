@@ -238,8 +238,8 @@ func TestValidPermissionKey(t *testing.T) {
 	// Register a module with permissions.
 	alpha := newStub("alpha")
 	alpha.manifest.Permissions = []sdk.Permission{
-		{Key: "alpha.read", Label: "Read alpha"},
-		{Key: "alpha.write", Label: "Write alpha"},
+		{Key: "alpha.read", Label: sdk.T("Read alpha")},
+		{Key: "alpha.write", Label: sdk.T("Write alpha")},
 	}
 	k.MustRegister(alpha)
 

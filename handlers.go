@@ -61,9 +61,9 @@ func toModuleInfo(m sdk.Manifest) moduleInfo {
 
 // permissionInfo is the JSON shape returned by the /_kernel/permissions endpoint.
 type permissionInfo struct {
-	Module string `json:"module"`
-	Key    string `json:"key"`
-	Label  string `json:"label"`
+	Module string                `json:"module"`
+	Key    string                `json:"key"`
+	Label  sdk.TranslatableField `json:"label"`
 }
 
 // handleListPermissions returns all permissions declared by all registered modules.

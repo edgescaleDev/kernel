@@ -34,14 +34,14 @@ func TestManifest_Fields(t *testing.T) {
 		Description: "Handles invoices and payments",
 		DependsOn:   []string{"iam", "orders"},
 		Permissions: []sdk.Permission{
-			{Key: "invoices.create", Label: "Create invoices"},
-			{Key: "invoices.read", Label: "View invoices"},
+			{Key: "invoices.create", Label: sdk.T("Create invoices")},
+			{Key: "invoices.read", Label: sdk.T("View invoices")},
 		},
 		Config: []sdk.ConfigFieldDef{
-			{Key: "auto_approve", Type: "bool", Default: false, Label: "Auto-approve invoices", Required: false},
+			{Key: "auto_approve", Type: "bool", Default: false, Label: sdk.T("Auto-approve invoices"), Required: false},
 		},
 		UINav: []sdk.NavItem{
-			{Label: "Invoices", Icon: "receipt", Path: "/billing/invoices", Permission: "invoices.read", SortOrder: 1},
+			{Label: sdk.T("Invoices"), Icon: "receipt", Path: "/billing/invoices", Permission: "invoices.read", SortOrder: 1},
 		},
 		StoragePrefix: "billing",
 	}
