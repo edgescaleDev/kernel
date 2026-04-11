@@ -135,7 +135,7 @@ Examples:
 				return err
 			}
 
-			fmt.Printf("rolled back %d migration(s) for module %q\n", steps, moduleID)
+			fmt.Printf("rollback completed for module %q\n", moduleID)
 			return nil
 		},
 	}
