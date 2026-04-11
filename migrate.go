@@ -129,7 +129,7 @@ func (k *Kernel) runModuleMigrations(moduleID, schema string, migrations fs.FS) 
 //
 // Usage:
 //
-//	kernel rollback --module billing --steps 1
+//	kernel migrate rollback --module billing --steps 1
 func (k *Kernel) Rollback(moduleID string, steps int) error {
 	if steps <= 0 {
 		return fmt.Errorf("rollback: steps must be > 0")
