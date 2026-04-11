@@ -3,6 +3,8 @@ package kernel
 import (
 	"io/fs"
 	"testing"
+
+	"go.edgescale.dev/kernel/internal"
 )
 
 func TestKernelMigrations_Embedded(t *testing.T) {
@@ -11,20 +13,12 @@ func TestKernelMigrations_Embedded(t *testing.T) {
 		t.Fatal("KernelMigrations() returned nil")
 	}
 
-	// Verify all 12 migration files are embedded.
+	// Verify both up and down migration files are present.
 	expected := []string{
 		"001_schema_migrations.up.sql",
+		"001_schema_migrations.down.sql",
 		"002_module_registry.up.sql",
-		"003_audit_events.up.sql",
-		"004_event_outbox.up.sql",
-		"005_webhooks.up.sql",
-		"006_custom_fields.up.sql",
-		"007_oauth_apps.up.sql",
-		"008_feature_flags.up.sql",
-		"009_scheduled_jobs.up.sql",
-		"010_idempotency_cache.up.sql",
-		"011_operations.up.sql",
-		"012_retention_policies.up.sql",
+		"002_module_registry.down.sql",
 	}
 
 	for _, name := range expected {
@@ -41,21 +35,21 @@ func TestKernelMigrations_Embedded(t *testing.T) {
 
 func TestKernelMigrations_CollectFiles(t *testing.T) {
 	migrations := KernelMigrations()
-	files, err := collectMigrationFiles(migrations)
+	files, err := internal.CollectMigrationFiles(migrations)
 	if err != nil {
-		t.Fatalf("collectMigrationFiles: %v", err)
+		t.Fatalf("CollectMigrationFiles: %v", err)
 	}
 
-	if len(files) != 12 {
-		t.Errorf("expected 12 migration files, got %d: %v", len(files), files)
+	if len(files) != 2 {
+		t.Errorf("expected 2 migration files, got %d: %v", len(files), files)
 	}
 
 	// Verify sort order.
-	if files[0] != "001_schema_migrations.up.sql" {
+	if len(files) >= 1 && files[0] != "001_schema_migrations.up.sql" {
 		t.Errorf("first file = %q, want 001_schema_migrations.up.sql", files[0])
 	}
-	if files[11] != "012_retention_policies.up.sql" {
-		t.Errorf("last file = %q, want 012_retention_policies.up.sql", files[11])
+	if len(files) >= 2 && files[1] != "002_module_registry.up.sql" {
+		t.Errorf("last file = %q, want 002_module_registry.up.sql", files[1])
 	}
 }
 
@@ -101,18 +95,18 @@ func TestModuleDepsCommand_Output(t *testing.T) {
 	cmd.Execute() // Just verify no panic.
 }
 
-func TestManifests(t *testing.T) {
+func TestAllManifests(t *testing.T) {
 	k := New(DefaultConfig())
 	k.MustRegister(newStub("orders"))
 	k.MustRegister(newStub("billing"))
 
-	manifests := k.Manifests()
+	manifests := k.allManifests()
 	if len(manifests) != 2 {
-		t.Errorf("Manifests() returned %d entries, want 2", len(manifests))
+		t.Errorf("allManifests() returned %d entries, want 2", len(manifests))
 	}
 	for _, id := range []string{"orders", "billing"} {
 		if _, ok := manifests[id]; !ok {
-			t.Errorf("missing %q in Manifests()", id)
+			t.Errorf("missing %q in allManifests()", id)
 		}
 	}
 }

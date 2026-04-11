@@ -1,9 +1,13 @@
 package kernel
 
-import "testing"
+import (
+	"testing"
+
+	"go.edgescale.dev/kernel/sdk"
+)
 
 func TestPermissionSet_ExactMatch(t *testing.T) {
-	ps := NewPermissionSet([]string{"orders.create", "orders.read"})
+	ps := sdk.NewPermissionSet([]string{"orders.create", "orders.read"})
 
 	if !ps.Has("orders.create") {
 		t.Error("should match exact permission")
@@ -17,7 +21,7 @@ func TestPermissionSet_ExactMatch(t *testing.T) {
 }
 
 func TestPermissionSet_NamespaceWildcard(t *testing.T) {
-	ps := NewPermissionSet([]string{"orders.*"})
+	ps := sdk.NewPermissionSet([]string{"orders.*"})
 
 	if !ps.Has("orders.create") {
 		t.Error("orders.* should match orders.create")
@@ -31,7 +35,7 @@ func TestPermissionSet_NamespaceWildcard(t *testing.T) {
 }
 
 func TestPermissionSet_GlobalWildcard(t *testing.T) {
-	ps := NewPermissionSet([]string{"*"})
+	ps := sdk.NewPermissionSet([]string{"*"})
 
 	if !ps.Has("orders.create") {
 		t.Error("* should match anything")
@@ -42,21 +46,21 @@ func TestPermissionSet_GlobalWildcard(t *testing.T) {
 }
 
 func TestPermissionSet_Empty(t *testing.T) {
-	ps := NewPermissionSet(nil)
+	ps := sdk.NewPermissionSet(nil)
 	if ps.Has("orders.create") {
 		t.Error("empty set should match nothing")
 	}
 }
 
 func TestPermissionSet_Nil(t *testing.T) {
-	var ps *PermissionSet
+	var ps *sdk.PermissionSet
 	if ps.Has("orders.create") {
 		t.Error("nil set should match nothing")
 	}
 }
 
 func TestPermissionSet_HasAny(t *testing.T) {
-	ps := NewPermissionSet([]string{"billing.read"})
+	ps := sdk.NewPermissionSet([]string{"billing.read"})
 
 	if !ps.HasAny("orders.create", "billing.read") {
 		t.Error("HasAny should match if any permission is present")
@@ -67,7 +71,7 @@ func TestPermissionSet_HasAny(t *testing.T) {
 }
 
 func TestPermissionSet_Permissions(t *testing.T) {
-	ps := NewPermissionSet([]string{"a", "b", "c"})
+	ps := sdk.NewPermissionSet([]string{"a", "b", "c"})
 	perms := ps.Permissions()
 	if len(perms) != 3 {
 		t.Errorf("Permissions() returned %d, want 3", len(perms))
@@ -75,7 +79,7 @@ func TestPermissionSet_Permissions(t *testing.T) {
 }
 
 func TestPermissionSet_NilPermissions(t *testing.T) {
-	var ps *PermissionSet
+	var ps *sdk.PermissionSet
 	if perms := ps.Permissions(); perms != nil {
 		t.Errorf("nil set Permissions() = %v, want nil", perms)
 	}

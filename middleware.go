@@ -150,10 +150,15 @@ func (k *Kernel) resolveOrg() gin.HandlerFunc {
 
 // resolveUser resolves the authenticated user's internal UUID from their IdP subject,
 // verifies their membership in the current organization, and loads their org-scoped
-// permissions into context for enforcement by checkPermission.
+// permissions into context for enforcement by sdk.RequirePermission.
 // Must be used after authenticate() and resolveOrg().
 func (k *Kernel) resolveUser() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if k.userResolver == nil {
+			sdk.Error(c, sdk.Forbidden("no user resolver configured"))
+			return
+		}
+
 		sub := c.GetString("user_id")
 		provider := c.GetString("auth_provider")
 		if sub == "" {
@@ -172,7 +177,7 @@ func (k *Kernel) resolveUser() gin.HandlerFunc {
 			return
 		}
 
-		// Check Redis cache for internal user ID and permissions.
+		// Check Redis cache for resolved user.
 		cacheKey := "middleware_user:" + sub + ":" + orgID.String()
 		type cachePayload struct {
 			ID          uuid.UUID `json:"id"`
@@ -191,32 +196,16 @@ func (k *Kernel) resolveUser() gin.HandlerFunc {
 		}
 
 		if !cacheHit {
-			// Resolve internal user UUID from IdP subject and check org membership.
-			var user struct {
-				ID uuid.UUID
-			}
-			if err := k.db.Raw(
-				`SELECT u.id 
-				 FROM users u 
-				 JOIN org_members om ON om.user_id = u.id 
-				 WHERE u.external_id = ? AND u.provider = ? AND u.deleted_at IS NULL AND u.status = 'active'
-				   AND om.org_id = ? AND om.deleted_at IS NULL LIMIT 1`,
-				sub, provider, orgID,
-			).Scan(&user).Error; err != nil || user.ID == uuid.Nil {
+			// Delegate to the user resolver (IAM module or similar).
+			resolved, err := k.userResolver.ResolveUser(c.Request.Context(), provider, sub, orgID)
+			if err != nil || resolved == nil {
 				sdk.Error(c, sdk.Forbidden("user not found or not a member of this organization"))
 				return
 			}
-			payload.ID = user.ID
+			payload.ID = resolved.InternalID
+			payload.Permissions = resolved.Permissions
 
-			// Load org-level permissions via user_roles → role_permissions.
-			k.db.Raw(`
-				SELECT DISTINCT rp.permission_key
-				FROM module_iam.role_permissions rp
-				JOIN module_iam.user_roles ur ON ur.role_id = rp.role_id
-				WHERE ur.user_id = ? AND ur.org_id = ?
-			`, user.ID, orgID).Pluck("permission_key", &payload.Permissions)
-
-			// Store in cache
+			// Store in cache.
 			if k.redis != nil && k.cfg.Server.CacheTTL > 0 {
 				if data, err := json.Marshal(&payload); err == nil {
 					k.redis.Set(c.Request.Context(), cacheKey, data, k.cfg.Server.CacheTTL)
@@ -226,7 +215,7 @@ func (k *Kernel) resolveUser() gin.HandlerFunc {
 
 		// Store internal user UUID for downstream handlers.
 		c.Set("internal_user_id", payload.ID)
-		c.Set("permissions", NewPermissionSet(payload.Permissions))
+		c.Set("permissions", sdk.NewPermissionSet(payload.Permissions))
 		c.Next()
 	}
 }
@@ -258,7 +247,7 @@ func (k *Kernel) moduleActivation(moduleID string) gin.HandlerFunc {
 			return
 		}
 
-		if !k.IsModuleActive(moduleID, orgID.String()) {
+		if !k.isModuleActive(moduleID, orgID.String()) {
 			sdk.Error(c, sdk.Forbidden("module not activated for this organization"))
 			return
 		}
@@ -267,42 +256,12 @@ func (k *Kernel) moduleActivation(moduleID string) gin.HandlerFunc {
 	}
 }
 
-// checkPermission returns middleware that enforces the given permission string.
-// Supports exact match, namespace wildcards (e.g., "orders.*"), and pipe-separated
-// OR expressions (e.g., "orders.read|billing.read" - any match passes).
-func (k *Kernel) checkPermission(required string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// Get the user's permission set from context (set by authenticate/resolveUser).
-		permsVal, exists := c.Get("permissions")
-		if !exists {
-			sdk.Error(c, sdk.Forbidden("insufficient permissions"))
-			return
-		}
-
-		ps, ok := permsVal.(*PermissionSet)
-		if !ok {
-			sdk.Error(c, sdk.Internal("invalid permission set in context"))
-			return
-		}
-
-		// Check pipe-separated OR permissions.
-		for perm := range strings.SplitSeq(required, "|") {
-			if ps.Has(strings.TrimSpace(perm)) {
-				c.Next()
-				return
-			}
-		}
-
-		sdk.Error(c, sdk.Forbidden("insufficient permissions"))
-	}
-}
-
-// requirePlatformAdmin resolves the authenticated user's internal UUID,
-// loads their platform-org permissions, and gates admin route access.
+// requirePlatformAdmin resolves the authenticated user's admin identity
+// and gates admin route access.
 // Must be used after authenticate().
 func (k *Kernel) requirePlatformAdmin() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if k.platformOrgID == uuid.Nil {
+		if k.adminResolver == nil {
 			sdk.Error(c, sdk.Forbidden("platform admin not configured"))
 			return
 		}
@@ -314,36 +273,21 @@ func (k *Kernel) requirePlatformAdmin() gin.HandlerFunc {
 			return
 		}
 
-		// Resolve internal user UUID from IdP subject.
-		var user struct {
-			ID uuid.UUID
-		}
-		if err := k.db.Raw(
-			"SELECT id FROM users WHERE external_id = ? AND provider = ? AND deleted_at IS NULL LIMIT 1",
-			sub, provider,
-		).Scan(&user).Error; err != nil || user.ID == uuid.Nil {
+		// Delegate to the admin resolver (IAM module or similar).
+		resolved, err := k.adminResolver.ResolveAdmin(c.Request.Context(), provider, sub)
+		if err != nil || resolved == nil {
 			sdk.Error(c, sdk.Forbidden("user not found"))
 			return
 		}
 
-		// Store internal user UUID for downstream handlers.
-		c.Set("internal_user_id", user.ID)
-
-		// Load platform-level permissions via user_roles → role_permissions.
-		var keys []string
-		k.db.Raw(`
-			SELECT DISTINCT rp.permission_key
-			FROM module_iam.role_permissions rp
-			JOIN module_iam.user_roles ur ON ur.role_id = rp.role_id
-			WHERE ur.user_id = ? AND ur.org_id = ?
-		`, user.ID, k.platformOrgID).Pluck("permission_key", &keys)
-
-		if len(keys) == 0 {
+		if len(resolved.Permissions) == 0 {
 			sdk.Error(c, sdk.Forbidden("platform admin access required"))
 			return
 		}
 
-		c.Set("permissions", NewPermissionSet(keys))
+		// Store internal user UUID for downstream handlers.
+		c.Set("internal_user_id", resolved.InternalID)
+		c.Set("permissions", sdk.NewPermissionSet(resolved.Permissions))
 		c.Next()
 	}
 }

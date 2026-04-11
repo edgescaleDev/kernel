@@ -1,3 +1,6 @@
+// Package main demonstrates a minimal kernel application.
+//
+// Run with: go run main.go serve
 package main
 
 import (
@@ -9,72 +12,77 @@ import (
 	"go.edgescale.dev/kernel/sdk"
 )
 
-// HelloModule is a minimal implementation of an sdk.Module.
+// ─────────────────────────────────────────────────────────────────────────────
+// Module: Hello
+// A minimal module that exposes a single public endpoint.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// HelloModule implements sdk.Module and sdk.HttpModule.
 type HelloModule struct{}
 
-// Manifest declares the module's identity and metadata.
 func (m *HelloModule) Manifest() sdk.Manifest {
 	return sdk.Manifest{
 		ID:          "hello",
 		Name:        "Hello Module",
 		Version:     "1.0.0",
-		Type:        sdk.TypeCore, // TypeCore is always active without tenant checks
+		Type:        sdk.TypeCore,
 		Schema:      "module_hello",
 		Description: "A simple hello world module.",
 	}
 }
 
-// Migrations provides the SQL schema updates. We use an empty FS here.
 func (m *HelloModule) Migrations() fs.FS {
 	return fstest.MapFS{}
 }
 
-// Init is called during kernel boot. Set up internal dependencies here.
 func (m *HelloModule) Init(ctx sdk.Context) error {
 	ctx.Logger.Info("Hello module initialized!")
 	return nil
 }
 
-// RegisterRoutes mounts the module's API endpoints.
 func (m *HelloModule) RegisterRoutes(router *sdk.Router) {
-	// sdk.Public makes this accessible without authentication
+	// Public endpoint — no authentication required.
 	router.GET("/hello", sdk.Public, func(c *gin.Context) {
 		c.JSON(200, gin.H{
-			"message": "Hello from the new Kernel Framework!",
+			"message": "Hello from the Kernel!",
 			"module":  "hello",
 		})
 	})
 }
 
-// RegisterEvents subscribes the module to asynchronous events.
-func (m *HelloModule) RegisterEvents(bus sdk.EventBus) {}
-
-// RegisterHooks registers synchronous interceptors across modules.
-func (m *HelloModule) RegisterHooks(hooks *sdk.HookRegistry) {}
-
-// RegisterWorkflows registers Temporal workflows.
-func (m *HelloModule) RegisterWorkflows(reg sdk.WorkflowRegistry) {}
-
-// RegisterActivities registers Temporal activities.
-func (m *HelloModule) RegisterActivities(reg sdk.ActivityRegistry) {}
-
-// Shutdown gracefully cleans up resources before exiting.
 func (m *HelloModule) Shutdown() error {
 	return nil
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Main
+// ─────────────────────────────────────────────────────────────────────────────
+
 func main() {
-	// Create a default configuration (usually loaded via Viper & env vars)
 	cfg := kernel.DefaultConfig()
 	cfg.Dev.Mode = true
 
-	// Instantiate the kernel
 	k := kernel.New(cfg)
 
-	// Register our capability module
+	// Register modules.
 	k.MustRegister(&HelloModule{})
 
-	// Start the CLI execution (runs server or migration commands)
-	// Try running: go run main.go serve
+	// Pluggable implementations — set before Boot().
+	// These are provided by external packages (IAM module, Firebase, etc.):
+	//
+	//   k.SetIdentityProvider(firebase.New(ctx))
+	//   k.SetUserResolver(iam.NewUserResolver(db))
+	//   k.SetAdminResolver(iam.NewAdminResolver(db))
+	//   k.SetAuditLogger(audit.NewLogger(db))
+	//   k.SetOutboxWriter(outbox.NewWriter(db))
+	//   k.SetEventBus(nats.NewBus(conn))
+	//   k.SetTaskExecutor(temporal.New(client))
+	//   k.SetSearchEngine(meilisearch.New(host, key))
+	//   k.SetOperationTracker(operations.NewTracker(db))
+	//   k.SetFeatureFlags(featureflags.New(db, rdb))
+
+	// Start: go run main.go serve
+	// Migrate: go run main.go migrate
+	// List modules: go run main.go module list
 	k.Execute()
 }

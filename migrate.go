@@ -4,13 +4,32 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io/fs"
-	"path/filepath"
-	"slices"
+	"regexp"
 	"strings"
-	"time"
 
+	"go.edgescale.dev/kernel/internal"
+	"go.edgescale.dev/kernel/sdk"
 	"gorm.io/gorm"
 )
+
+// validSchemaName matches safe PostgreSQL identifier characters only.
+// This prevents SQL injection when interpolating schema names into SET LOCAL statements.
+var validSchemaName = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+
+// postgresMaxIdentLen is the maximum length for a PostgreSQL identifier (NAMEDATALEN-1).
+const postgresMaxIdentLen = 63
+
+// validateSchema returns an error if the schema name contains unsafe characters
+// or exceeds PostgreSQL's maximum identifier length.
+func validateSchema(schema string) error {
+	if len(schema) > postgresMaxIdentLen {
+		return fmt.Errorf("invalid schema name %q: exceeds PostgreSQL maximum identifier length of %d", schema, postgresMaxIdentLen)
+	}
+	if !validSchemaName.MatchString(schema) {
+		return fmt.Errorf("invalid schema name %q: must match [a-zA-Z_][a-zA-Z0-9_]*", schema)
+	}
+	return nil
+}
 
 // Migrate runs all database migrations in the correct order:
 //  1. Kernel-owned migrations (public schema)
@@ -22,7 +41,7 @@ func (k *Kernel) Migrate() error {
 	k.logger.Info("starting migrations")
 
 	// Auto-create the migrations tracking table if it doesn't exist.
-	if err := k.db.AutoMigrate(&SchemaMigration{}); err != nil {
+	if err := k.db.AutoMigrate(&internal.SchemaMigration{}); err != nil {
 		return fmt.Errorf("create schema_migrations: %w", err)
 	}
 
@@ -31,7 +50,7 @@ func (k *Kernel) Migrate() error {
 		return fmt.Errorf("migrate kernel: %w", err)
 	}
 
-	for _, m := range k.Modules() {
+	for _, m := range k.orderedModules() {
 		manifest := m.Manifest()
 		migrations := m.Migrations()
 		if migrations == nil {
@@ -62,7 +81,11 @@ func (k *Kernel) Migrate() error {
 // runModuleMigrations applies SQL migration files for a single module.
 // Files are sorted by name and only unapplied migrations are executed.
 func (k *Kernel) runModuleMigrations(moduleID, schema string, migrations fs.FS) error {
-	files, err := collectMigrationFiles(migrations)
+	if err := validateSchema(schema); err != nil {
+		return err
+	}
+
+	files, err := internal.CollectMigrationFiles(migrations)
 	if err != nil {
 		return fmt.Errorf("read migrations: %w", err)
 	}
@@ -71,8 +94,10 @@ func (k *Kernel) runModuleMigrations(moduleID, schema string, migrations fs.FS) 
 	}
 
 	// Find already-applied migrations.
-	var applied []SchemaMigration
-	k.db.Where("module_id = ?", moduleID).Order("version ASC").Find(&applied)
+	var applied []internal.SchemaMigration
+	if result := k.db.Where("module_id = ?", moduleID).Order("version ASC").Find(&applied); result.Error != nil {
+		return fmt.Errorf("query applied migrations: %w", result.Error)
+	}
 	appliedSet := make(map[int]bool, len(applied))
 	for _, a := range applied {
 		appliedSet[a.Version] = true
@@ -89,8 +114,9 @@ func (k *Kernel) runModuleMigrations(moduleID, schema string, migrations fs.FS) 
 			return fmt.Errorf("read %s: %w", file, err)
 		}
 
-		// Set search_path for the module's schema.
-		sql := fmt.Sprintf("SET search_path TO %s, public;\n%s", schema, string(content))
+		// SET LOCAL scopes the search_path change to the current transaction,
+		// preventing it from leaking to other sessions on pooled connections.
+		sql := fmt.Sprintf("SET LOCAL search_path TO %s, public;\n%s", schema, string(content))
 
 		k.logger.Info("applying migration",
 			"module", moduleID,
@@ -104,7 +130,7 @@ func (k *Kernel) runModuleMigrations(moduleID, schema string, migrations fs.FS) 
 				return fmt.Errorf("execute %s: %w", file, err)
 			}
 
-			record := SchemaMigration{
+			record := internal.SchemaMigration{
 				ModuleID: moduleID,
 				Version:  version,
 				Filename: file,
@@ -122,39 +148,129 @@ func (k *Kernel) runModuleMigrations(moduleID, schema string, migrations fs.FS) 
 	return nil
 }
 
-// collectMigrationFiles returns all .up.sql files from the FS, sorted by name.
-func collectMigrationFiles(migrations fs.FS) ([]string, error) {
-	var files []string
-	err := fs.WalkDir(migrations, ".", func(path string, d fs.DirEntry, err error) error {
+// Rollback reverts the last N applied migrations for a specific module.
+// Each step executes the corresponding .down.sql file in a transaction.
+// If a .down.sql file is missing, the rollback stops with an error.
+//
+// Usage:
+//
+//	kernel migrate rollback --module billing --steps 1
+func (k *Kernel) Rollback(moduleID string, steps int) error {
+	if steps <= 0 {
+		return fmt.Errorf("rollback: steps must be > 0")
+	}
+
+	// Find the module.
+	var targetModule sdk.Module
+	var manifest sdk.Manifest
+	if moduleID == "kernel" {
+		manifest = sdk.Manifest{ID: "kernel", Schema: "public"}
+	} else {
+		for _, m := range k.orderedModules() {
+			if m.Manifest().ID == moduleID {
+				targetModule = m
+				manifest = m.Manifest()
+				break
+			}
+		}
+		if targetModule == nil {
+			return fmt.Errorf("rollback: module %q not registered", moduleID)
+		}
+	}
+
+	// Get the migration FS.
+	var migrationFS fs.FS
+	if moduleID == "kernel" {
+		migrationFS = KernelMigrations()
+	} else {
+		migrationFS = targetModule.Migrations()
+		if migrationFS == nil {
+			return fmt.Errorf("rollback: module %q has no migrations", moduleID)
+		}
+	}
+
+	schema := manifest.Schema
+	if schema == "" {
+		schema = "public"
+	}
+
+	if err := validateSchema(schema); err != nil {
+		return fmt.Errorf("rollback: %w", err)
+	}
+
+	// Ensure the schema_migrations table exists before querying it.
+	if err := k.db.AutoMigrate(&internal.SchemaMigration{}); err != nil {
+		return fmt.Errorf("rollback: ensure schema_migrations: %w", err)
+	}
+
+	// Find applied migrations in reverse order.
+	var applied []internal.SchemaMigration
+	if result := k.db.Where("module_id = ?", moduleID).Order("version DESC").Find(&applied); result.Error != nil {
+		return fmt.Errorf("rollback: query applied migrations: %w", result.Error)
+	}
+
+	if len(applied) == 0 {
+		k.logger.Info("no migrations to rollback", "module", moduleID)
+		return nil
+	}
+
+	if steps > len(applied) {
+		steps = len(applied)
+	}
+
+	// Collect available .down.sql files.
+	downFiles, err := internal.CollectDownFiles(migrationFS)
+	if err != nil {
+		return fmt.Errorf("rollback: read down files: %w", err)
+	}
+
+	for i := 0; i < steps; i++ {
+		migration := applied[i]
+
+		// Derive the .down.sql filename from the .up.sql filename.
+		downFilename := strings.Replace(migration.Filename, ".up.sql", ".down.sql", 1)
+
+		if _, exists := downFiles[downFilename]; !exists {
+			return fmt.Errorf(
+				"rollback: missing %s — cannot rollback version %d of module %q. "+
+					"Create the .down.sql file and rebuild.",
+				downFilename, migration.Version, moduleID,
+			)
+		}
+
+		content, err := fs.ReadFile(migrationFS, downFilename)
 		if err != nil {
+			return fmt.Errorf("rollback: read %s: %w", downFilename, err)
+		}
+
+		sql := fmt.Sprintf("SET LOCAL search_path TO %s, public;\n%s", schema, string(content))
+
+		k.logger.Info("rolling back migration",
+			"module", moduleID,
+			"version", migration.Version,
+			"file", downFilename,
+		)
+
+		if err := k.db.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Exec(sql).Error; err != nil {
+				return fmt.Errorf("execute %s: %w", downFilename, err)
+			}
+
+			if err := tx.Where("module_id = ? AND version = ?", moduleID, migration.Version).
+				Delete(&internal.SchemaMigration{}).Error; err != nil {
+				return fmt.Errorf("delete migration record %s: %w", downFilename, err)
+			}
+			return nil
+		}); err != nil {
 			return err
 		}
-		if d.IsDir() {
-			return nil
-		}
-		if strings.HasSuffix(path, ".up.sql") {
-			files = append(files, path)
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
+
+		k.logger.Info("rolled back migration",
+			"module", moduleID,
+			"version", migration.Version,
+		)
 	}
-	slices.SortFunc(files, func(a, b string) int {
-		return strings.Compare(filepath.Base(a), filepath.Base(b))
-	})
-	return files, nil
-}
 
-// SchemaMigration tracks applied migrations per module.
-type SchemaMigration struct {
-	ModuleID  string    `gorm:"primaryKey;column:module_id"`
-	Version   int       `gorm:"primaryKey;column:version"`
-	Filename  string    `gorm:"column:filename;not null"`
-	Checksum  string    `gorm:"column:checksum;not null"`
-	AppliedAt time.Time `gorm:"column:applied_at;autoCreateTime"`
-}
-
-func (SchemaMigration) TableName() string {
-	return "schema_migrations"
+	k.logger.Info("rollback complete", "module", moduleID, "steps", steps)
+	return nil
 }

@@ -201,15 +201,14 @@ func TestResolveOrg_ValidUUID(t *testing.T) {
 }
 
 func TestCheckPermission_Allows(t *testing.T) {
-	k := New(DefaultConfig())
 	r := gin.New()
 
 	// Simulate a user with permissions.
 	r.Use(func(c *gin.Context) {
-		c.Set("permissions", NewPermissionSet([]string{"orders.create"}))
+		c.Set("permissions", sdk.NewPermissionSet([]string{"orders.create"}))
 		c.Next()
 	})
-	r.Use(k.checkPermission("orders.create"))
+	r.Use(sdk.RequirePermission("orders.create"))
 	r.GET("/test", func(c *gin.Context) {
 		c.String(200, "ok")
 	})
@@ -224,14 +223,13 @@ func TestCheckPermission_Allows(t *testing.T) {
 }
 
 func TestCheckPermission_Denies(t *testing.T) {
-	k := New(DefaultConfig())
 	r := gin.New()
 
 	r.Use(func(c *gin.Context) {
-		c.Set("permissions", NewPermissionSet([]string{"billing.read"}))
+		c.Set("permissions", sdk.NewPermissionSet([]string{"billing.read"}))
 		c.Next()
 	})
-	r.Use(k.checkPermission("orders.create"))
+	r.Use(sdk.RequirePermission("orders.create"))
 	r.GET("/test", func(c *gin.Context) {
 		c.String(200, "ok")
 	})
@@ -246,14 +244,13 @@ func TestCheckPermission_Denies(t *testing.T) {
 }
 
 func TestCheckPermission_PipeSeparatedOR(t *testing.T) {
-	k := New(DefaultConfig())
 	r := gin.New()
 
 	r.Use(func(c *gin.Context) {
-		c.Set("permissions", NewPermissionSet([]string{"billing.read"}))
+		c.Set("permissions", sdk.NewPermissionSet([]string{"billing.read"}))
 		c.Next()
 	})
-	r.Use(k.checkPermission("orders.create|billing.read"))
+	r.Use(sdk.RequirePermission("orders.create|billing.read"))
 	r.GET("/test", func(c *gin.Context) {
 		c.String(200, "ok")
 	})

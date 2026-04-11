@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"testing"
 
+	"go.edgescale.dev/kernel/internal"
 	"go.edgescale.dev/kernel/sdk"
 )
 
@@ -26,15 +27,10 @@ func newStub(id string, deps ...string) *stubModule {
 	}
 }
 
-func (s *stubModule) Manifest() sdk.Manifest                    { return s.manifest }
-func (s *stubModule) Migrations() fs.FS                         { return nil }
-func (s *stubModule) Init(_ sdk.Context) error                  { return nil }
-func (s *stubModule) RegisterRoutes(_ *sdk.Router)              {}
-func (s *stubModule) RegisterEvents(_ sdk.EventBus)             {}
-func (s *stubModule) RegisterHooks(_ *sdk.HookRegistry)         {}
-func (s *stubModule) RegisterWorkflows(_ sdk.WorkflowRegistry)  {}
-func (s *stubModule) RegisterActivities(_ sdk.ActivityRegistry) {}
-func (s *stubModule) Shutdown() error                           { return nil }
+func (s *stubModule) Manifest() sdk.Manifest   { return s.manifest }
+func (s *stubModule) Migrations() fs.FS        { return nil }
+func (s *stubModule) Init(_ sdk.Context) error { return nil }
+func (s *stubModule) Shutdown() error          { return nil }
 
 // --- Kernel tests ---
 
@@ -88,6 +84,30 @@ func TestRegister_DuplicateReturnsError(t *testing.T) {
 	}
 }
 
+func TestRegister_ReservedIDReturnsError(t *testing.T) {
+	tests := []struct {
+		id      string
+		wantErr bool
+	}{
+		{"", true},
+		{"_internal", true},
+		{"_kernel", true},
+		{"kernel", true},
+		{"billing", false},
+		{"modules", false}, // allowed as module ID — kernel routes are under /_kernel/
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.id, func(t *testing.T) {
+			k := New(DefaultConfig())
+			err := k.Register(newStub(tt.id))
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Register(%q) error = %v, wantErr %v", tt.id, err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestMustRegister_PanicsOnDuplicate(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {
@@ -105,9 +125,9 @@ func TestModules_BeforeBoot(t *testing.T) {
 	k.MustRegister(newStub("a"))
 	k.MustRegister(newStub("b"))
 
-	modules := k.Modules()
+	modules := k.orderedModules()
 	if len(modules) != 2 {
-		t.Errorf("Modules() before Boot = %d, want 2", len(modules))
+		t.Errorf("orderedModules() before Boot = %d, want 2", len(modules))
 	}
 }
 
@@ -136,7 +156,7 @@ func TestInstallFallbacks(t *testing.T) {
 func TestInstallFallbacks_DoesNotOverrideExplicit(t *testing.T) {
 	k := New(DefaultConfig())
 
-	custom := noopEventBus{}
+	custom := internal.NoopEventBus{}
 	k.SetEventBus(custom)
 	k.installFallbacks()
 
@@ -235,8 +255,8 @@ func TestValidPermissionKey(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		if got := k.ValidPermissionKey(tt.key); got != tt.want {
-			t.Errorf("ValidPermissionKey(%q) = %v, want %v", tt.key, got, tt.want)
+		if got := k.validPermissionKey(tt.key); got != tt.want {
+			t.Errorf("validPermissionKey(%q) = %v, want %v", tt.key, got, tt.want)
 		}
 	}
 }

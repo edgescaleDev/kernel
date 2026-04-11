@@ -3,6 +3,7 @@ package kernel
 import (
 	"testing"
 
+	"go.edgescale.dev/kernel/internal"
 	"go.edgescale.dev/kernel/sdk"
 )
 
@@ -13,9 +14,9 @@ func TestTopoSort_Linear(t *testing.T) {
 		"invoicing": {ID: "invoicing", DependsOn: []string{"billing"}},
 	}
 
-	order, err := topoSort(manifests)
+	order, err := internal.TopoSort(manifests)
 	if err != nil {
-		t.Fatalf("topoSort: %v", err)
+		t.Fatalf("TopoSort: %v", err)
 	}
 
 	// iam must come before billing, billing before invoicing.
@@ -40,9 +41,9 @@ func TestTopoSort_Diamond(t *testing.T) {
 		"d": {ID: "d", DependsOn: []string{"b", "c"}},
 	}
 
-	order, err := topoSort(manifests)
+	order, err := internal.TopoSort(manifests)
 	if err != nil {
-		t.Fatalf("topoSort: %v", err)
+		t.Fatalf("TopoSort: %v", err)
 	}
 
 	idx := make(map[string]int)
@@ -64,9 +65,9 @@ func TestTopoSort_CycleDetection(t *testing.T) {
 		"c": {ID: "c", DependsOn: []string{"b"}},
 	}
 
-	_, err := topoSort(manifests)
+	_, err := internal.TopoSort(manifests)
 	if err == nil {
-		t.Fatal("topoSort should detect cycle")
+		t.Fatal("TopoSort should detect cycle")
 	}
 	t.Logf("cycle error: %v", err)
 }
@@ -76,12 +77,12 @@ func TestTopoSort_SingleNode(t *testing.T) {
 		"solo": {ID: "solo", DependsOn: nil},
 	}
 
-	order, err := topoSort(manifests)
+	order, err := internal.TopoSort(manifests)
 	if err != nil {
-		t.Fatalf("topoSort: %v", err)
+		t.Fatalf("TopoSort: %v", err)
 	}
 	if len(order) != 1 || order[0] != "solo" {
-		t.Errorf("topoSort single = %v, want [solo]", order)
+		t.Errorf("TopoSort single = %v, want [solo]", order)
 	}
 }
 
@@ -93,12 +94,12 @@ func TestTopoSort_Deterministic(t *testing.T) {
 	}
 
 	// Run 10 times - output must always be the same.
-	first, _ := topoSort(manifests)
+	first, _ := internal.TopoSort(manifests)
 	for i := 0; i < 10; i++ {
-		got, _ := topoSort(manifests)
+		got, _ := internal.TopoSort(manifests)
 		for j := range first {
 			if first[j] != got[j] {
-				t.Fatalf("topoSort not deterministic: run 0 = %v, run %d = %v", first, i+1, got)
+				t.Fatalf("TopoSort not deterministic: run 0 = %v, run %d = %v", first, i+1, got)
 			}
 		}
 	}
@@ -144,10 +145,10 @@ func TestDependents(t *testing.T) {
 	k.MustRegister(newStub("invoicing", "billing"))
 	k.MustRegister(newStub("payments", "core"))
 
-	deps := k.Dependents("core")
+	deps := k.dependents("core")
 	// billing, invoicing, payments all transitively depend on core.
 	if len(deps) != 3 {
-		t.Fatalf("Dependents(core) = %v, want 3 entries", deps)
+		t.Fatalf("dependents(core) = %v, want 3 entries", deps)
 	}
 	// Should contain billing, invoicing, payments (sorted).
 	want := []string{"billing", "invoicing", "payments"}
@@ -163,8 +164,8 @@ func TestDependents_Leaf(t *testing.T) {
 	k.MustRegister(newStub("core"))
 	k.MustRegister(newStub("billing", "core"))
 
-	deps := k.Dependents("billing")
+	deps := k.dependents("billing")
 	if len(deps) != 0 {
-		t.Errorf("Dependents(billing) = %v, want empty (leaf node)", deps)
+		t.Errorf("dependents(billing) = %v, want empty (leaf node)", deps)
 	}
 }

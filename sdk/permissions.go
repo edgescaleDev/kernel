@@ -1,4 +1,4 @@
-package kernel
+package sdk
 
 import (
 	"slices"
@@ -6,7 +6,7 @@ import (
 )
 
 // PermissionSet holds a user's resolved permissions for a specific org.
-// Loaded from the database and cached in Redis with a 5-minute TTL.
+// Used by the kernel middleware and modules to check access control.
 type PermissionSet struct {
 	perms map[string]bool
 }

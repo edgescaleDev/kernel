@@ -11,7 +11,7 @@ import (
 // topological dependency order. This ensures that when a module initializes,
 // all its dependencies are already available.
 func (k *Kernel) initModules() error {
-	for _, m := range k.Modules() {
+	for _, m := range k.orderedModules() {
 		manifest := m.Manifest()
 		moduleID := manifest.ID
 
@@ -22,18 +22,24 @@ func (k *Kernel) initModules() error {
 			return fmt.Errorf("init %q: %w", moduleID, err)
 		}
 
-		// Let the module register its EventBus subscriptions.
-		m.RegisterEvents(k.bus)
-
-		// Let the module register its sync hooks.
-		m.RegisterHooks(k.hooks)
-
-		// Let the module register Temporal workflows/activities.
-		if k.workflows != nil {
-			m.RegisterWorkflows(k.workflows)
+		// Optional: let the module register its EventBus subscriptions.
+		if em, ok := m.(sdk.EventModule); ok {
+			em.RegisterEvents(k.bus)
 		}
-		if k.activities != nil {
-			m.RegisterActivities(k.activities)
+
+		// Optional: let the module register its sync hooks.
+		if hm, ok := m.(sdk.HookModule); ok {
+			hm.RegisterHooks(k.hooks)
+		}
+
+		// Optional: let the module register Temporal workflows/activities.
+		if wm, ok := m.(sdk.WorkflowModule); ok {
+			if k.workflows != nil {
+				wm.RegisterWorkflows(k.workflows)
+			}
+			if k.activities != nil {
+				wm.RegisterActivities(k.activities)
+			}
 		}
 
 		k.logger.Info("module ready", "id", moduleID)
@@ -48,6 +54,17 @@ func (k *Kernel) buildContext(manifest sdk.Manifest) sdk.Context {
 	moduleID := manifest.ID
 	logger := slog.Default().With("module", moduleID)
 
+	// Use pluggable implementations with noop fallbacks.
+	audit := k.auditLogger
+	if audit == nil {
+		audit = &sdk.TestAuditLogger{}
+	}
+
+	var outbox sdk.OutboxWriter
+	if k.outboxWriter != nil {
+		outbox = k.outboxWriter
+	}
+
 	ctx := sdk.Context{
 		PublicDB:           k.db,
 		Logger:             logger,
@@ -56,10 +73,12 @@ func (k *Kernel) buildContext(manifest sdk.Manifest) sdk.Context {
 		Search:             k.searchEngine,
 		Hooks:              k.hooks,
 		IdentityProvider:   k.identityProvider,
-		Audit:              newAuditLogger(k.db, moduleID),
-		Outbox:             &outboxWriter{db: k.db, moduleID: moduleID},
+		Audit:              audit,
+		Outbox:             outbox,
+		Operations:         k.operationTracker,
+		Features:           k.featureFlags,
 		ServiceID:          moduleID,
-		ValidPermissionKey: k.ValidPermissionKey,
+		ValidPermissionKey: k.validPermissionKey,
 	}
 	ctx.SetReaders(k.readers)
 

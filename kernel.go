@@ -7,10 +7,10 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/spf13/cobra"
 
@@ -60,12 +60,15 @@ type Kernel struct {
 	searchEngine     sdk.SearchEngine
 	workflows        sdk.WorkflowRegistry
 	activities       sdk.ActivityRegistry
+	userResolver     sdk.UserResolver
+	adminResolver    sdk.AdminResolver
+	auditLogger      sdk.AuditLogger
+	outboxWriter     sdk.OutboxWriter
+	operationTracker sdk.OperationTracker
+	featureFlags     sdk.FeatureFlags
 
 	// Custom CLI commands registered by the consumer.
 	customCommands []*cobra.Command
-
-	// Platform org ID (cached during Serve).
-	platformOrgID uuid.UUID
 
 	// Shutdown coordination.
 	shutdownOnce sync.Once
@@ -86,9 +89,12 @@ func New(cfg Config) *Kernel {
 }
 
 // Register adds a compiled-in module to the kernel.
-// Must be called before Boot(). Returns an error on duplicate module IDs.
+// Must be called before Boot(). Returns an error on duplicate or reserved module IDs.
 func (k *Kernel) Register(m sdk.Module) error {
 	manifest := m.Manifest()
+	if err := validateModuleID(manifest.ID); err != nil {
+		return fmt.Errorf("kernel: %w", err)
+	}
 	if _, exists := k.manifests[manifest.ID]; exists {
 		return fmt.Errorf("kernel: duplicate module ID %q", manifest.ID)
 	}
@@ -99,6 +105,20 @@ func (k *Kernel) Register(m sdk.Module) error {
 		"version", manifest.Version,
 		"type", manifest.Type.String(),
 	)
+	return nil
+}
+
+// validateModuleID checks that a module ID won't collide with kernel routes.
+func validateModuleID(id string) error {
+	if id == "" {
+		return fmt.Errorf("module ID must not be empty")
+	}
+	if strings.HasPrefix(id, "_") {
+		return fmt.Errorf("module ID %q is reserved (starts with _)", id)
+	}
+	if id == "kernel" {
+		return fmt.Errorf("module ID %q is reserved", id)
+	}
 	return nil
 }
 
@@ -140,6 +160,42 @@ func (k *Kernel) SetEventBus(bus sdk.EventBus) {
 	k.bus = bus
 }
 
+// SetUserResolver sets the pluggable user resolver (IAM module, external IdP, etc.).
+// Must be called before Serve(). If not set, resolveUser middleware will reject all requests.
+func (k *Kernel) SetUserResolver(resolver sdk.UserResolver) {
+	k.userResolver = resolver
+}
+
+// SetAdminResolver sets the pluggable admin resolver.
+// Must be called before Serve(). If not set, requirePlatformAdmin middleware will reject all requests.
+func (k *Kernel) SetAdminResolver(resolver sdk.AdminResolver) {
+	k.adminResolver = resolver
+}
+
+// SetAuditLogger sets the pluggable audit logger (audit module, etc.).
+// Must be called before Serve(). If not set, audit logging silently discards entries.
+func (k *Kernel) SetAuditLogger(logger sdk.AuditLogger) {
+	k.auditLogger = logger
+}
+
+// SetOutboxWriter sets the pluggable outbox writer (outbox module, etc.).
+// Must be called before Serve(). If not set, outbox writes are silently discarded.
+func (k *Kernel) SetOutboxWriter(writer sdk.OutboxWriter) {
+	k.outboxWriter = writer
+}
+
+// SetOperationTracker sets the pluggable operation tracker (operations module, etc.).
+// Must be called before Serve(). If not set, operation tracking is unavailable.
+func (k *Kernel) SetOperationTracker(tracker sdk.OperationTracker) {
+	k.operationTracker = tracker
+}
+
+// SetFeatureFlags sets the pluggable feature flags (featureflags module, etc.).
+// Must be called before Serve(). If not set, all feature checks return false.
+func (k *Kernel) SetFeatureFlags(flags sdk.FeatureFlags) {
+	k.featureFlags = flags
+}
+
 // Boot connects to infrastructure, validates the dependency graph,
 // and prepares the kernel for serving requests.
 // This must be called after all modules are registered and pluggable
@@ -171,31 +227,9 @@ func (k *Kernel) Boot() error {
 	return nil
 }
 
-// installFallbacks sets noop implementations for pluggable interfaces
-// that were not explicitly set by the consumer. This prevents nil
-// dereferences when modules access Tasks, Search, or Bus.
-func (k *Kernel) installFallbacks() {
-	if k.identityProvider == nil {
-		k.logger.Warn("no identity provider set - all authentication will be rejected")
-		k.identityProvider = noopIdentityProvider{}
-	}
-	if k.bus == nil {
-		k.logger.Warn("no event bus set - using noop bus")
-		k.bus = noopEventBus{}
-	}
-	if k.taskExecutor == nil {
-		k.logger.Warn("no task executor set - background tasks will be disabled")
-		k.taskExecutor = noopTaskExecutor{}
-	}
-	if k.searchEngine == nil {
-		k.logger.Warn("no search engine set - search will be disabled")
-		k.searchEngine = noopSearchEngine{}
-	}
-}
-
-// Modules returns the list of registered modules in dependency order.
+// modules returns the list of registered modules in dependency order.
 // Returns registration order if Boot() has not been called.
-func (k *Kernel) Modules() []sdk.Module {
+func (k *Kernel) orderedModules() []sdk.Module {
 	if len(k.depOrder) == 0 {
 		return k.modules
 	}
@@ -214,63 +248,18 @@ func (k *Kernel) Modules() []sdk.Module {
 	return ordered
 }
 
-// DB returns the kernel's database connection.
-// Returns nil if Boot() has not been called.
-func (k *Kernel) DB() *gorm.DB {
-	return k.db
-}
-
-// Redis returns the kernel's Redis client.
-// Returns nil if Boot() has not been called.
-func (k *Kernel) Redis() *redis.Client {
-	return k.redis
-}
-
-// DepOrder returns the topological sort order of module IDs.
-// Returns nil if Boot() has not been called.
-func (k *Kernel) DepOrder() []string {
-	return k.depOrder
-}
-
-// Manifests returns a copy of the manifest map.
+// manifests returns a copy of the manifest map.
 // Used by CLI commands to inspect registered modules.
-func (k *Kernel) Manifests() map[string]sdk.Manifest {
+func (k *Kernel) allManifests() map[string]sdk.Manifest {
 	result := make(map[string]sdk.Manifest, len(k.manifests))
 	maps.Copy(result, k.manifests)
 	return result
 }
 
-// PlatformOrgID returns the cached platform organization ID.
-// Returns uuid.Nil if not yet loaded.
-func (k *Kernel) PlatformOrgID() uuid.UUID {
-	return k.platformOrgID
-}
-
-// loadPlatformOrg discovers and caches the platform org ID.
-// Called during Serve() after modules are initialized and migrations have run.
-func (k *Kernel) loadPlatformOrg() error {
-	var result struct {
-		ID uuid.UUID
-	}
-	err := k.db.Raw(
-		"SELECT id FROM organizations WHERE status = 'platform' LIMIT 1",
-	).Scan(&result).Error
-	if err != nil {
-		return fmt.Errorf("load platform org: %w", err)
-	}
-	if result.ID == uuid.Nil {
-		k.logger.Warn("no platform org found — platform admin features disabled")
-		return nil
-	}
-	k.platformOrgID = result.ID
-	k.logger.Info("platform org loaded", "id", k.platformOrgID)
-	return nil
-}
-
-// ValidPermissionKey returns true if the given key is declared
+// validPermissionKey returns true if the given key is declared
 // by any registered module's manifest. Use this to validate
 // permission keys at write-time (e.g., when assigning permissions to roles).
-func (k *Kernel) ValidPermissionKey(key string) bool {
+func (k *Kernel) validPermissionKey(key string) bool {
 	for _, m := range k.manifests {
 		for _, p := range m.Permissions {
 			if p.Key == key {
