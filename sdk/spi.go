@@ -62,9 +62,15 @@ type Module interface {
 	Manifest() Manifest
 
 	// Migrations returns an embedded filesystem of SQL migration files.
-	// Files must follow the naming convention:
-	//   {version}_{description}.up.sql   - forward migration
-	//   {version}_{description}.down.sql - rollback migration
+	// Migration files are discovered in sorted filename order, and the runner
+	// assigns sequential migration versions based on that order.
+	//
+	// Name files using a sortable prefix and matching up/down pairs, for example:
+	//   001_description.up.sql   - forward migration
+	//   001_description.down.sql - rollback migration
+	//
+	// The numeric prefix is used for ordering only; it is not parsed and persisted
+	// as the migration version.
 	// Return nil if the module has no migrations.
 	Migrations() fs.FS
 
