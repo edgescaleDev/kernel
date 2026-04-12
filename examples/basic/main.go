@@ -40,14 +40,21 @@ func (m *HelloModule) Init(ctx sdk.Context) error {
 	return nil
 }
 
-func (m *HelloModule) RegisterRoutes(router *sdk.Router) {
-	// Public endpoint — no authentication required.
-	router.GET("/hello", sdk.Public, func(c *gin.Context) {
-		c.JSON(200, gin.H{
-			"message": "Hello from the Kernel!",
-			"module":  "hello",
-		})
-	})
+func (m *HelloModule) RouteHandlers() []sdk.RouteHandler {
+	return []sdk.RouteHandler{
+		{
+			Type: sdk.RouteClient,
+			Register: func(r *sdk.Router) {
+				// Public endpoint — no authentication required.
+				r.GET("/hello", sdk.Public, func(c *gin.Context) {
+					c.JSON(200, gin.H{
+						"message": "Hello from the Kernel!",
+						"module":  "hello",
+					})
+				})
+			},
+		},
+	}
 }
 
 func (m *HelloModule) Shutdown() error {

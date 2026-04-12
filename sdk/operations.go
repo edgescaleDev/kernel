@@ -29,7 +29,7 @@ type OperationTracker interface {
 // OperationInput defines the parameters for creating a new operation.
 type OperationInput struct {
 	ModuleID string
-	OrgID    uuid.UUID
+	TenantID uuid.UUID
 	UserID   uuid.UUID
 	Type     string // e.g., "import", "export", "bulk_update"
 }

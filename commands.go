@@ -22,7 +22,7 @@ import (
 func (k *Kernel) buildRootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "kernel",
-		Short: "Kernel CLI — manage modules, migrations, and organizations",
+		Short: "Kernel CLI — manage modules, migrations, and tenants",
 		// Silence Cobra's default usage/error printing — we handle it via slog.
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -32,7 +32,7 @@ func (k *Kernel) buildRootCommand() *cobra.Command {
 		k.serveCommand(),
 		k.migrateCommand(),
 		k.moduleCommand(),
-		k.orgCommand(),
+		k.tenantCommand(),
 		k.platformCommand(),
 	)
 
@@ -189,20 +189,20 @@ func (k *Kernel) moduleListCommand() *cobra.Command {
 }
 
 func (k *Kernel) moduleEnableCommand() *cobra.Command {
-	var orgID string
+	var tenantID string
 
 	cmd := &cobra.Command{
 		Use:   "enable [module-id]",
-		Short: "Enable a module for an organization",
+		Short: "Enable a module for a tenant",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := k.Boot(); err != nil {
 				return err
 			}
 
-			parsedOrg, err := uuid.Parse(orgID)
+			parsedTenant, err := uuid.Parse(tenantID)
 			if err != nil {
-				return fmt.Errorf("invalid org ID: %w", err)
+				return fmt.Errorf("invalid tenant ID: %w", err)
 			}
 
 			moduleID := args[0]
@@ -211,66 +211,66 @@ func (k *Kernel) moduleEnableCommand() *cobra.Command {
 			}
 
 			// Use a zero UUID for activated_by in CLI context.
-			if err := k.ActivateModule(context.Background(), moduleID, parsedOrg, uuid.Nil); err != nil {
+			if err := k.ActivateModule(context.Background(), moduleID, parsedTenant, uuid.Nil); err != nil {
 				return err
 			}
 
-			fmt.Printf("module %q enabled for org %s\n", moduleID, orgID)
+			fmt.Printf("module %q enabled for tenant %s\n", moduleID, tenantID)
 			return nil
 		},
 	}
 
-	cmd.Flags().StringVar(&orgID, "org", "", "organization ID (required)")
-	cmd.MarkFlagRequired("org")
+	cmd.Flags().StringVar(&tenantID, "tenant", "", "tenant ID (required)")
+	cmd.MarkFlagRequired("tenant")
 	return cmd
 }
 
 func (k *Kernel) moduleDisableCommand() *cobra.Command {
-	var orgID string
+	var tenantID string
 
 	cmd := &cobra.Command{
 		Use:   "disable [module-id]",
-		Short: "Disable a module for an organization",
+		Short: "Disable a module for a tenant",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := k.Boot(); err != nil {
 				return err
 			}
 
-			parsedOrg, err := uuid.Parse(orgID)
+			parsedTenant, err := uuid.Parse(tenantID)
 			if err != nil {
-				return fmt.Errorf("invalid org ID: %w", err)
+				return fmt.Errorf("invalid tenant ID: %w", err)
 			}
 
 			moduleID := args[0]
-			if err := k.DeactivateModule(context.Background(), moduleID, parsedOrg); err != nil {
+			if err := k.DeactivateModule(context.Background(), moduleID, parsedTenant); err != nil {
 				return err
 			}
 
-			fmt.Printf("module %q disabled for org %s\n", moduleID, orgID)
+			fmt.Printf("module %q disabled for tenant %s\n", moduleID, tenantID)
 			return nil
 		},
 	}
 
-	cmd.Flags().StringVar(&orgID, "org", "", "organization ID (required)")
-	cmd.MarkFlagRequired("org")
+	cmd.Flags().StringVar(&tenantID, "tenant", "", "tenant ID (required)")
+	cmd.MarkFlagRequired("tenant")
 	return cmd
 }
 
 func (k *Kernel) moduleStatusCommand() *cobra.Command {
-	var orgID string
+	var tenantID string
 
 	cmd := &cobra.Command{
 		Use:   "status",
-		Short: "Show module activation status for an organization",
+		Short: "Show module activation status for a tenant",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := k.Boot(); err != nil {
 				return err
 			}
 
-			parsedOrg, err := uuid.Parse(orgID)
+			parsedTenant, err := uuid.Parse(tenantID)
 			if err != nil {
-				return fmt.Errorf("invalid org ID: %w", err)
+				return fmt.Errorf("invalid tenant ID: %w", err)
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
@@ -278,7 +278,7 @@ func (k *Kernel) moduleStatusCommand() *cobra.Command {
 			fmt.Fprintln(w, "──────\t────\t──────")
 			for _, m := range k.orderedModules() {
 				manifest := m.Manifest()
-				active := k.isModuleActive(manifest.ID, parsedOrg.String())
+				active := k.isModuleActive(manifest.ID, parsedTenant.String())
 				fmt.Fprintf(w, "%s\t%s\t%v\n",
 					manifest.ID, manifest.Type.String(), active)
 			}
@@ -286,8 +286,8 @@ func (k *Kernel) moduleStatusCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&orgID, "org", "", "organization ID (required)")
-	cmd.MarkFlagRequired("org")
+	cmd.Flags().StringVar(&tenantID, "tenant", "", "tenant ID (required)")
+	cmd.MarkFlagRequired("tenant")
 	return cmd
 }
 
@@ -321,46 +321,46 @@ func (k *Kernel) moduleDepsCommand() *cobra.Command {
 	}
 }
 
-// ── org ──────────────────────────────────────────────────────────────────────
+// ── tenant ──────────────────────────────────────────────────────────────────
 
-func (k *Kernel) orgCommand() *cobra.Command {
+func (k *Kernel) tenantCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "org",
-		Short: "Manage organizations",
+		Use:   "tenant",
+		Short: "Manage tenants",
 	}
 
 	cmd.AddCommand(
-		k.orgProvisionCommand(),
-		k.orgDeprovisionCommand(),
-		k.orgListCommand(),
+		k.tenantProvisionCommand(),
+		k.tenantDeprovisionCommand(),
+		k.tenantListCommand(),
 	)
 
 	return cmd
 }
 
-func (k *Kernel) orgProvisionCommand() *cobra.Command {
+func (k *Kernel) tenantProvisionCommand() *cobra.Command {
 	var adminEmail string
 
 	cmd := &cobra.Command{
-		Use:   "provision [org-id]",
-		Short: "Provision a new organization",
-		Long:  "Creates module activations for all core modules. The org record itself should already exist in the database.",
+		Use:   "provision [tenant-id]",
+		Short: "Provision a new tenant",
+		Long:  "Creates module activations for all core modules. The tenant record itself should already exist in the database.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := k.Boot(); err != nil {
 				return err
 			}
 
-			orgID, err := uuid.Parse(args[0])
+			tenantID, err := uuid.Parse(args[0])
 			if err != nil {
-				return fmt.Errorf("invalid org ID: %w", err)
+				return fmt.Errorf("invalid tenant ID: %w", err)
 			}
 
-			if err := k.ProvisionOrg(context.Background(), orgID, uuid.Nil); err != nil {
+			if err := k.ProvisionTenant(context.Background(), tenantID, uuid.Nil); err != nil {
 				return err
 			}
 
-			fmt.Printf("org %s provisioned (%d core modules activated)\n", orgID, k.coreModuleCount())
+			fmt.Printf("tenant %s provisioned (%d core modules activated)\n", tenantID, k.coreModuleCount())
 			if adminEmail != "" {
 				fmt.Printf("admin email: %s (invite should be sent by the IAM module)\n", adminEmail)
 			}
@@ -368,16 +368,16 @@ func (k *Kernel) orgProvisionCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&adminEmail, "admin-email", "", "admin email for the new org")
+	cmd.Flags().StringVar(&adminEmail, "admin-email", "", "admin email for the new tenant")
 	return cmd
 }
 
-func (k *Kernel) orgDeprovisionCommand() *cobra.Command {
+func (k *Kernel) tenantDeprovisionCommand() *cobra.Command {
 	var confirm string
 
 	cmd := &cobra.Command{
-		Use:   "deprovision [org-id]",
-		Short: "Deprovision an organization (deactivate all modules)",
+		Use:   "deprovision [tenant-id]",
+		Short: "Deprovision a tenant (deactivate all modules)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if confirm == "" {
@@ -388,16 +388,16 @@ func (k *Kernel) orgDeprovisionCommand() *cobra.Command {
 				return err
 			}
 
-			orgID, err := uuid.Parse(args[0])
+			tenantID, err := uuid.Parse(args[0])
 			if err != nil {
-				return fmt.Errorf("invalid org ID: %w", err)
+				return fmt.Errorf("invalid tenant ID: %w", err)
 			}
 
-			if err := k.DeprovisionOrg(context.Background(), orgID); err != nil {
+			if err := k.DeprovisionTenant(context.Background(), tenantID); err != nil {
 				return err
 			}
 
-			fmt.Printf("org %s deprovisioned — all modules deactivated\n", orgID)
+			fmt.Printf("tenant %s deprovisioned — all modules deactivated\n", tenantID)
 			return nil
 		},
 	}
@@ -407,42 +407,42 @@ func (k *Kernel) orgDeprovisionCommand() *cobra.Command {
 	return cmd
 }
 
-func (k *Kernel) orgListCommand() *cobra.Command {
+func (k *Kernel) tenantListCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
-		Short: "List organizations with active modules",
+		Short: "List tenants with active modules",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := k.Boot(); err != nil {
 				return err
 			}
 
-			// Query distinct org_ids from module_activations.
+			// Query distinct tenant_ids from module_activations.
 			var activations []internal.ModuleActivation
-			if err := k.db.Select("DISTINCT org_id").Where("active = ?", true).Find(&activations).Error; err != nil {
-				return fmt.Errorf("query orgs: %w", err)
+			if err := k.db.Select("DISTINCT tenant_id").Where("active = ?", true).Find(&activations).Error; err != nil {
+				return fmt.Errorf("query tenants: %w", err)
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-			fmt.Fprintln(w, "ORG ID\tACTIVE MODULES")
-			fmt.Fprintln(w, "──────\t──────────────")
+			fmt.Fprintln(w, "TENANT ID\tACTIVE MODULES")
+			fmt.Fprintln(w, "─────────\t──────────────")
 
-			// Group by org.
-			orgModules := make(map[string]int)
+			// Group by tenant.
+			tenantModules := make(map[string]int)
 			var allActivations []internal.ModuleActivation
 			k.db.Where("active = ?", true).Find(&allActivations)
 			for _, a := range allActivations {
-				orgModules[a.OrgID]++
+				tenantModules[a.TenantID]++
 			}
 
-			// Sort org IDs for stable output.
-			orgIDs := make([]string, 0, len(orgModules))
-			for id := range orgModules {
-				orgIDs = append(orgIDs, id)
+			// Sort tenant IDs for stable output.
+			tenantIDs := make([]string, 0, len(tenantModules))
+			for id := range tenantModules {
+				tenantIDs = append(tenantIDs, id)
 			}
-			sort.Strings(orgIDs)
+			sort.Strings(tenantIDs)
 
-			for _, id := range orgIDs {
-				fmt.Fprintf(w, "%s\t%d\n", id, orgModules[id])
+			for _, id := range tenantIDs {
+				fmt.Fprintf(w, "%s\t%d\n", id, tenantModules[id])
 			}
 			return w.Flush()
 		},

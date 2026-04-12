@@ -8,7 +8,7 @@ import "io/fs"
 type ModuleType int
 
 const (
-	// TypeCore services are always active for every organization.
+	// TypeCore services are always active for every tenant.
 	// They do not require explicit activation (e.g., IAM, uploads).
 	TypeCore ModuleType = iota
 
@@ -42,6 +42,23 @@ func (t ModuleType) String() string {
 	}
 }
 
+// RouteType classifies a route handler's mounting strategy.
+type RouteType string
+
+const (
+	// RouteClient mounts routes for client consumption.
+	// The kernel creates three groups:
+	//   - Global authenticated: /v1/{module_id}/ — auth only, no tenant context
+	//   - Tenant-scoped: /v1/:tenant_id/{module_id}/ — auth + tenant + user + activation
+	//   - Public: /v1/{module_id}/public/ — no authentication
+	RouteClient RouteType = "client"
+
+	// RouteAdmin mounts routes for platform administration.
+	// The kernel creates one group:
+	//   - Admin: /admin/v1/{module_id}/ — auth + platform admin check
+	RouteAdmin RouteType = "admin"
+)
+
 // IsCore returns true if this module type is always active (no activation check needed).
 func (t ModuleType) IsCore() bool {
 	return t == TypeCore
@@ -51,7 +68,7 @@ func (t ModuleType) IsCore() bool {
 // The kernel discovers, wires, and manages modules through this contract.
 //
 // For optional capabilities, implement the corresponding interface:
-//   - HttpModule     — exposes HTTP endpoints
+//   - HttpModule     — exposes HTTP endpoints (via RouteHandlers)
 //   - EventModule    — subscribes to async events
 //   - HookModule     — registers sync interceptors
 //   - WorkflowModule — registers Temporal workflows/activities
@@ -88,9 +105,32 @@ type Module interface {
 // The kernel checks for them via type assertion during initialization.
 // A single module can implement any combination of these.
 
-// HttpModule is implemented by modules that expose http endpoints.
+// HttpModule is implemented by modules that expose HTTP endpoints.
+// Modules return one or more RouteHandlers, each declaring its type
+// (client or admin) and a registration function.
+//
+// Example:
+//
+//	func (m *IAM) RouteHandlers() []sdk.RouteHandler {
+//	    return []sdk.RouteHandler{
+//	        {Type: sdk.RouteClient, Register: m.registerClientRoutes},
+//	        {Type: sdk.RouteAdmin, Register: m.registerAdminRoutes},
+//	    }
+//	}
 type HttpModule interface {
-	RegisterRoutes(router *Router)
+	RouteHandlers() []RouteHandler
+}
+
+// RouteHandler associates a route type with a registration function.
+// The kernel builds the appropriate route groups and middleware chain
+// based on the Type, then calls Register with a Router scoped to those groups.
+type RouteHandler struct {
+	// Type determines which middleware chain and URL prefix the kernel applies.
+	Type RouteType
+
+	// Register is called by the kernel with a Router scoped to the
+	// appropriate groups for this route type.
+	Register func(*Router)
 }
 
 // EventModule is implemented by modules that subscribe to async events.

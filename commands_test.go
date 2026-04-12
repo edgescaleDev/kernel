@@ -69,7 +69,7 @@ func TestBuildRootCommand(t *testing.T) {
 		cmds[c.Name()] = true
 	}
 
-	for _, name := range []string{"serve", "migrate", "module", "org"} {
+	for _, name := range []string{"serve", "migrate", "module", "tenant"} {
 		if !cmds[name] {
 			t.Errorf("missing subcommand %q", name)
 		}

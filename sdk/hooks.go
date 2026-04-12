@@ -13,9 +13,9 @@ import (
 // Example: "before.orders.create", "after.orders.create"
 type HookPoint string
 
-// OrgProvisionedEvent is the payload for the "after.kernel.org.provisioned" hook.
-type OrgProvisionedEvent struct {
-	OrgID       uuid.UUID
+// TenantProvisionedEvent is the payload for the "after.kernel.tenant.provisioned" hook.
+type TenantProvisionedEvent struct {
+	TenantID    uuid.UUID
 	ActivatedBy uuid.UUID
 }
 

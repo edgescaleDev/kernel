@@ -32,8 +32,8 @@ type EventEnvelope struct {
 	// Payload is the serialized event data.
 	Payload json.RawMessage `json:"payload"`
 
-	// OrgID is the tenant that originated this event.
-	OrgID uuid.UUID `json:"org_id,omitempty"`
+	// TenantID is the tenant that originated this event.
+	TenantID uuid.UUID `json:"tenant_id,omitempty"`
 
 	// UserID is the user who triggered the action that produced this event.
 	UserID uuid.UUID `json:"user_id,omitempty"`

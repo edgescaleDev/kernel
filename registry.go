@@ -38,10 +38,10 @@ func (k *Kernel) syncRegistry() error {
 	return nil
 }
 
-// isModuleActive checks whether a module is active for the given org.
+// isModuleActive checks whether a module is active for the given tenant.
 // Core modules always return true. Feature/integration modules check
 // the module_activations table (Redis cached).
-func (k *Kernel) isModuleActive(moduleID string, orgID string) bool {
+func (k *Kernel) isModuleActive(moduleID string, tenantID string) bool {
 	manifest, exists := k.manifests[moduleID]
 	if !exists {
 		return false
@@ -54,7 +54,7 @@ func (k *Kernel) isModuleActive(moduleID string, orgID string) bool {
 
 	// Check Redis cache first.
 	if k.redis != nil {
-		cacheKey := fmt.Sprintf("module:%s:active:%s", moduleID, orgID)
+		cacheKey := fmt.Sprintf("module:%s:active:%s", moduleID, tenantID)
 		val, err := k.redis.Get(context.Background(), cacheKey).Result()
 		if err == nil {
 			return val == "1"
@@ -63,14 +63,14 @@ func (k *Kernel) isModuleActive(moduleID string, orgID string) bool {
 
 	// Fall back to database.
 	var activation internal.ModuleActivation
-	result := k.db.Where("module_id = ? AND org_id = ?", moduleID, orgID).First(&activation)
+	result := k.db.Where("module_id = ? AND tenant_id = ?", moduleID, tenantID).First(&activation)
 	if result.Error != nil {
 		return false
 	}
 
 	// Cache the result for 1 minute.
 	if k.redis != nil {
-		cacheKey := fmt.Sprintf("module:%s:active:%s", moduleID, orgID)
+		cacheKey := fmt.Sprintf("module:%s:active:%s", moduleID, tenantID)
 		val := "0"
 		if activation.Active {
 			val = "1"

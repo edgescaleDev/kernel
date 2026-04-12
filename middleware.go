@@ -127,31 +127,39 @@ func (k *Kernel) authenticate() gin.HandlerFunc {
 	}
 }
 
-// resolveOrg extracts the X-Org-ID header, validates it as a UUID,
-// and stores it in the gin context for downstream use.
-func (k *Kernel) resolveOrg() gin.HandlerFunc {
+// resolveTenant extracts the tenant ID from the URL path parameter (:tenant_id)
+// or falls back to the X-Tenant-ID header. Validates it as a UUID and stores
+// it in the gin context for downstream use.
+//
+// Resolution order:
+//  1. URL path parameter :tenant_id (primary — Cloudflare-style)
+//  2. X-Tenant-ID header (fallback — for clients that can't use path routing)
+func (k *Kernel) resolveTenant() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		orgHeader := c.GetHeader("X-Org-ID")
-		if orgHeader == "" {
-			sdk.Error(c, sdk.BadRequest("missing X-Org-ID header"))
+		tenantStr := c.Param("tenant_id")
+		if tenantStr == "" {
+			tenantStr = c.GetHeader("X-Tenant-ID")
+		}
+		if tenantStr == "" {
+			sdk.Error(c, sdk.BadRequest("missing tenant id"))
 			return
 		}
 
-		orgID, err := uuid.Parse(orgHeader)
+		tenantID, err := uuid.Parse(tenantStr)
 		if err != nil {
-			sdk.Error(c, sdk.BadRequest("invalid organization id"))
+			sdk.Error(c, sdk.BadRequest("invalid tenant id"))
 			return
 		}
 
-		c.Set("org_id", orgID)
+		c.Set("tenant_id", tenantID)
 		c.Next()
 	}
 }
 
 // resolveUser resolves the authenticated user's internal UUID from their IdP subject,
-// verifies their membership in the current organization, and loads their org-scoped
+// verifies their membership in the current tenant, and loads their tenant-scoped
 // permissions into context for enforcement by sdk.RequirePermission.
-// Must be used after authenticate() and resolveOrg().
+// Must be used after authenticate() and resolveTenant().
 func (k *Kernel) resolveUser() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if k.userResolver == nil {
@@ -166,19 +174,19 @@ func (k *Kernel) resolveUser() gin.HandlerFunc {
 			return
 		}
 
-		v, exists := c.Get("org_id")
+		v, exists := c.Get("tenant_id")
 		if !exists {
-			sdk.Error(c, sdk.Internal("missing organization context"))
+			sdk.Error(c, sdk.Internal("missing tenant context"))
 			return
 		}
-		orgID, ok := v.(uuid.UUID)
+		tenantID, ok := v.(uuid.UUID)
 		if !ok {
-			sdk.Error(c, sdk.Internal("invalid organization id in context"))
+			sdk.Error(c, sdk.Internal("invalid tenant id in context"))
 			return
 		}
 
 		// Check Redis cache for resolved user.
-		cacheKey := "middleware_user:" + sub + ":" + orgID.String()
+		cacheKey := "middleware_user:" + sub + ":" + tenantID.String()
 		type cachePayload struct {
 			ID          uuid.UUID `json:"id"`
 			Permissions []string  `json:"permissions"`
@@ -197,9 +205,9 @@ func (k *Kernel) resolveUser() gin.HandlerFunc {
 
 		if !cacheHit {
 			// Delegate to the user resolver (IAM module or similar).
-			resolved, err := k.userResolver.ResolveUser(c.Request.Context(), provider, sub, orgID)
+			resolved, err := k.userResolver.ResolveUser(c.Request.Context(), provider, sub, tenantID)
 			if err != nil || resolved == nil {
-				sdk.Error(c, sdk.Forbidden("user not found or not a member of this organization"))
+				sdk.Error(c, sdk.Forbidden("user not found or not a member of this tenant"))
 				return
 			}
 			payload.ID = resolved.InternalID
@@ -220,7 +228,7 @@ func (k *Kernel) resolveUser() gin.HandlerFunc {
 	}
 }
 
-// moduleActivation checks whether a module is active for the requesting org.
+// moduleActivation checks whether a module is active for the requesting tenant.
 // Core modules always pass. Feature/integration modules are checked against
 // the module_activations table (cached in Redis).
 func (k *Kernel) moduleActivation(moduleID string) gin.HandlerFunc {
@@ -236,19 +244,19 @@ func (k *Kernel) moduleActivation(moduleID string) gin.HandlerFunc {
 	}
 
 	return func(c *gin.Context) {
-		v, exists := c.Get("org_id")
+		v, exists := c.Get("tenant_id")
 		if !exists {
-			sdk.Error(c, sdk.Internal("missing organization context"))
+			sdk.Error(c, sdk.Internal("missing tenant context"))
 			return
 		}
-		orgID, ok := v.(uuid.UUID)
+		tenantID, ok := v.(uuid.UUID)
 		if !ok {
-			sdk.Error(c, sdk.BadRequest("invalid organization id"))
+			sdk.Error(c, sdk.BadRequest("invalid tenant id"))
 			return
 		}
 
-		if !k.isModuleActive(moduleID, orgID.String()) {
-			sdk.Error(c, sdk.Forbidden("module not activated for this organization"))
+		if !k.isModuleActive(moduleID, tenantID.String()) {
+			sdk.Error(c, sdk.Forbidden("module not activated for this tenant"))
 			return
 		}
 

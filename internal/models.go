@@ -35,7 +35,7 @@ func (ModuleRecord) TableName() string {
 // ModuleActivation maps to the public.module_activations table.
 type ModuleActivation struct {
 	ModuleID    string    `gorm:"primaryKey;column:module_id"`
-	OrgID       string    `gorm:"primaryKey;column:org_id;type:uuid"`
+	TenantID    string    `gorm:"primaryKey;column:tenant_id;type:uuid"`
 	Active      bool      `gorm:"column:active;default:true"`
 	ActivatedBy string    `gorm:"column:activated_by;type:uuid"`
 	CreatedAt   time.Time `gorm:"column:created_at;autoCreateTime"`

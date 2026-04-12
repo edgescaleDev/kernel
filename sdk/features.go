@@ -4,12 +4,12 @@ import (
 	"context"
 )
 
-// FeatureFlags checks whether feature flags are active for an organization.
+// FeatureFlags checks whether feature flags are active for a tenant.
 // The kernel provides a noop implementation that returns false for all flags
 // when no feature flags module is registered.
 type FeatureFlags interface {
-	// Enabled checks whether a feature flag is active for the given org.
-	Enabled(ctx context.Context, flag string, orgID string) bool
+	// Enabled checks whether a feature flag is active for the given tenant.
+	Enabled(ctx context.Context, flag string, tenantID string) bool
 }
 
 // noopFeatureFlags is the default implementation when no feature flags module is registered.

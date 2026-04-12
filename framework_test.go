@@ -51,7 +51,7 @@ func TestCollectMigrationFiles(t *testing.T) {
 
 func TestIsModuleActive_UnregisteredModule(t *testing.T) {
 	k := New(DefaultConfig())
-	if k.isModuleActive("nonexistent", "some-org-id") {
+	if k.isModuleActive("nonexistent", "some-tenant-id") {
 		t.Error("unregistered module should not be active")
 	}
 }
@@ -60,7 +60,7 @@ func TestIsModuleActive_CoreModule(t *testing.T) {
 	k := New(DefaultConfig())
 	k.MustRegister(newCoreStub("auth"))
 
-	if !k.isModuleActive("auth", "any-org-id") {
+	if !k.isModuleActive("auth", "any-tenant-id") {
 		t.Error("core module should always be active")
 	}
 }

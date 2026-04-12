@@ -43,7 +43,7 @@ func (k *Kernel) setupRouter() {
 		kernelAPI.GET("/permissions", k.handleListPermissions)
 	}
 
-	// Mount each module's routes under /v1/{module_id}/ and /v2/{module_id}/.
+	// Mount each module's routes.
 	for _, m := range k.orderedModules() {
 		// Only modules that implement HttpModule get routes mounted.
 		hm, ok := m.(sdk.HttpModule)
@@ -53,40 +53,51 @@ func (k *Kernel) setupRouter() {
 
 		manifest := m.Manifest()
 		moduleID := manifest.ID
+		totalRoutes := 0
 
-		var router *sdk.Router
+		for _, rh := range hm.RouteHandlers() {
+			var router *sdk.Router
 
-		if manifest.Type == sdk.TypeAdmin {
-			// Admin modules are mounted on /admin/v1/{module_id}/.
-			// No resolveOrg or moduleActivation — they operate cross-org.
-			// requirePlatformAdmin loads permissions from the platform org.
-			adminAuth := k.engine.Group("/admin/v1/" + moduleID)
-			adminAuth.Use(k.authenticate(), k.requirePlatformAdmin())
+			switch rh.Type {
+			case sdk.RouteClient:
+				// Global authenticated: /v1/{module_id}/ — auth only, no tenant context.
+				globalAuth := v1.Group("/" + moduleID)
 
-			adminPublic := k.engine.Group("/admin/v1/" + moduleID + "/public")
-			adminV2 := k.engine.Group("/admin/v2/" + moduleID)
+				// Tenant-scoped: /v1/:tenant_id/{module_id}/ — full tenant context.
+				tenantAuth := k.engine.Group("/v1/:tenant_id/" + moduleID)
+				tenantAuth.Use(k.authenticate(), k.resolveTenant(), k.resolveUser(), k.moduleActivation(moduleID))
 
-			router = sdk.NewRouter(adminAuth, adminV2, adminPublic, sdk.RequirePermission, moduleID)
-		} else {
-			// Standard modules: org-scoped on /v1/ and /v2/.
-			authenticated := v1.Group("/" + moduleID)
-			authenticated.Use(k.resolveOrg(), k.resolveUser(), k.moduleActivation(moduleID))
+				// Public: /v1/{module_id}/public/ — no auth required.
+				public := k.engine.Group("/v1/" + moduleID + "/public")
 
-			public := k.engine.Group("/v1/" + moduleID)
+				router = sdk.NewRouter(globalAuth, tenantAuth, public, sdk.RequirePermission, moduleID)
 
-			v2Auth := k.engine.Group("/v2/" + moduleID)
-			v2Auth.Use(k.authenticate(), k.resolveOrg(), k.resolveUser(), k.moduleActivation(moduleID))
+			case sdk.RouteAdmin:
+				// Admin: /admin/v1/{module_id}/ — platform admin only.
+				adminAuth := k.engine.Group("/admin/v1/" + moduleID)
+				adminAuth.Use(k.authenticate(), k.requirePlatformAdmin())
 
-			router = sdk.NewRouter(authenticated, v2Auth, public, sdk.RequirePermission, moduleID)
+				// Admin public: /admin/v1/{module_id}/public/ — no auth.
+				adminPublic := k.engine.Group("/admin/v1/" + moduleID + "/public")
+
+				router = sdk.NewRouter(adminAuth, adminAuth, adminPublic, sdk.RequirePermission, moduleID)
+
+			default:
+				k.logger.Warn("unknown route type, skipping",
+					"module", moduleID,
+					"type", rh.Type,
+				)
+				continue
+			}
+
+			rh.Register(router)
+			totalRoutes += len(router.Routes())
 		}
 
-		hm.RegisterRoutes(router)
-
-		routes := router.Routes()
 		k.logger.Info("mounted routes",
 			"module", moduleID,
 			"type", manifest.Type.String(),
-			"count", len(routes),
+			"count", totalRoutes,
 		)
 	}
 }

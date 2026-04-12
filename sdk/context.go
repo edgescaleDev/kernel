@@ -16,7 +16,7 @@ type Context struct {
 	DB *gorm.DB
 
 	// PublicDB is a GORM instance for JOINs to shared kernel tables
-	// (e.g., public.users, public.organizations).
+	// (e.g., public.users, public.tenants).
 	PublicDB *gorm.DB
 
 	// Redis provides a namespaced Redis client.

@@ -7,13 +7,14 @@ import (
 )
 
 // AuditLogger appends entries to the kernel's hash-chained audit log.
-// The kernel's middleware automatically captures user_id, org_id, service_id,
+// The kernel's middleware automatically captures user_id, tenant_id, service_id,
 // ip_address, user_agent, and request_id from the request context.
 // Services only need to call Log() for custom audit events beyond automatic logging.
 type AuditLogger interface {
 	// Log appends an audit entry to the hash-chained audit log.
 	Log(ctx context.Context, entry AuditEntry) error
 }
+
 // AuditAction represents the type of operation being audited.
 // Consumers can define additional actions as needed: const ActionCustom AuditAction = "custom"
 type AuditAction string
@@ -51,8 +52,8 @@ type AuditEntry struct {
 	// UserID overrides the automatic user detection (e.g., for system actions).
 	UserID *uuid.UUID
 
-	// OrgID overrides the automatic org detection.
-	OrgID *uuid.UUID
+	// TenantID overrides the automatic tenant detection.
+	TenantID *uuid.UUID
 }
 
 // AuditChange represents a single field change in an audit entry.

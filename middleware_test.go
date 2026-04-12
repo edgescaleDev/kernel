@@ -146,10 +146,11 @@ func TestAuthenticate_ValidBearer(t *testing.T) {
 	}
 }
 
-func TestResolveOrg_MissingHeader(t *testing.T) {
+func TestResolveTenant_MissingPathAndHeader(t *testing.T) {
 	k := New(DefaultConfig())
 	r := gin.New()
-	r.Use(k.resolveOrg())
+	// No :tenant_id param and no header → should fail.
+	r.Use(k.resolveTenant())
 	r.GET("/test", func(c *gin.Context) {
 		c.String(200, "ok")
 	})
@@ -159,21 +160,19 @@ func TestResolveOrg_MissingHeader(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusBadRequest {
-		t.Errorf("missing org status = %d, want 400", w.Code)
+		t.Errorf("missing tenant status = %d, want 400", w.Code)
 	}
 }
 
-func TestResolveOrg_InvalidUUID(t *testing.T) {
+func TestResolveTenant_InvalidUUID(t *testing.T) {
 	k := New(DefaultConfig())
 	r := gin.New()
-	r.Use(k.resolveOrg())
-	r.GET("/test", func(c *gin.Context) {
+	r.GET("/v1/:tenant_id/test", k.resolveTenant(), func(c *gin.Context) {
 		c.String(200, "ok")
 	})
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/test", nil)
-	req.Header.Set("X-Org-ID", "not-a-uuid")
+	req := httptest.NewRequest("GET", "/v1/not-a-uuid/test", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusBadRequest {
@@ -181,22 +180,40 @@ func TestResolveOrg_InvalidUUID(t *testing.T) {
 	}
 }
 
-func TestResolveOrg_ValidUUID(t *testing.T) {
+func TestResolveTenant_ValidPathParam(t *testing.T) {
 	k := New(DefaultConfig())
 	r := gin.New()
-	r.Use(k.resolveOrg())
+	r.GET("/v1/:tenant_id/test", k.resolveTenant(), func(c *gin.Context) {
+		tenantID, _ := c.Get("tenant_id")
+		c.String(200, "%v", tenantID)
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/v1/550e8400-e29b-41d4-a716-446655440000/test", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("valid tenant status = %d, want 200", w.Code)
+	}
+}
+
+func TestResolveTenant_HeaderFallback(t *testing.T) {
+	k := New(DefaultConfig())
+	r := gin.New()
+	// Route without :tenant_id param — should fall back to header.
+	r.Use(k.resolveTenant())
 	r.GET("/test", func(c *gin.Context) {
-		orgID, _ := c.Get("org_id")
-		c.String(200, "%v", orgID)
+		tenantID, _ := c.Get("tenant_id")
+		c.String(200, "%v", tenantID)
 	})
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/test", nil)
-	req.Header.Set("X-Org-ID", "550e8400-e29b-41d4-a716-446655440000")
+	req.Header.Set("X-Tenant-ID", "550e8400-e29b-41d4-a716-446655440000")
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
-		t.Errorf("valid org status = %d, want 200", w.Code)
+		t.Errorf("header fallback status = %d, want 200", w.Code)
 	}
 }
 

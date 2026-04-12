@@ -49,8 +49,8 @@ func ParsePageRequest(c *gin.Context) PageRequest {
 
 // PageResult holds a page of results with pagination metadata.
 type PageResult[T any] struct {
-	Items   []T        `json:"items"`
-	Meta    ResultInfo `json:"meta"`
+	Items []T        `json:"result"`
+	Meta  ResultInfo `json:"result_info"`
 }
 
 // Paginate executes a paginated GORM query and returns the results
@@ -60,7 +60,7 @@ type PageResult[T any] struct {
 // Usage:
 //
 //	page := sdk.ParsePageRequest(c)
-//	result, err := sdk.Paginate[Order](db.Where("org_id = ?", orgID), page)
+//	result, err := sdk.Paginate[Order](db.Where("tenant_id = ?", tenantID), page)
 //	if err != nil {
 //	    sdk.Error(c, err)
 //	    return

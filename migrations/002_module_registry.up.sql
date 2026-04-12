@@ -11,11 +11,11 @@ CREATE TABLE IF NOT EXISTS public.module_registry (
 );
 CREATE TABLE IF NOT EXISTS public.module_activations (
     module_id TEXT NOT NULL,
-    org_id UUID NOT NULL,
+    tenant_id UUID NOT NULL,
     active BOOLEAN NOT NULL DEFAULT TRUE,
     config JSONB NOT NULL DEFAULT '{}',
     activated_by UUID,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (module_id, org_id)
+    PRIMARY KEY (module_id, tenant_id)
 );

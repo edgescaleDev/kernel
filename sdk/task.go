@@ -33,8 +33,8 @@ type TaskDefinition struct {
 	// ServiceID identifies which service owns this task.
 	ServiceID string
 
-	// OrgID is the tenant context for this task.
-	OrgID uuid.UUID
+	// TenantID is the tenant context for this task.
+	TenantID uuid.UUID
 
 	// Handler is the function to execute. It receives a ProgressReporter
 	// for reporting execution progress back to the kernel.

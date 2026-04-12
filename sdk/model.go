@@ -54,7 +54,7 @@ type Timestamped struct {
 //
 //	type Order struct {
 //	    sdk.BaseModel
-//	    OrgID     uuid.UUID `json:"org_id" gorm:"type:uuid;not null;index"`
+//	    TenantID  uuid.UUID `json:"tenant_id" gorm:"type:uuid;not null;index"`
 //	    Total     int64     `json:"total"`
 //	}
 type BaseModel struct {

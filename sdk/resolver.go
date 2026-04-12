@@ -7,13 +7,13 @@ import (
 )
 
 // UserResolver resolves an authenticated identity (from an IdP) into an
-// internal user with org-scoped permissions. The IAM module provides
+// internal user with tenant-scoped permissions. The IAM module provides
 // the production implementation. The kernel calls this from middleware
 // without knowing anything about users, roles, or permission tables.
 type UserResolver interface {
 	// ResolveUser looks up the internal user for the given external identity
-	// within the specified org, and returns their ID and permissions.
-	ResolveUser(ctx context.Context, provider, externalID string, orgID uuid.UUID) (*ResolvedUser, error)
+	// within the specified tenant, and returns their ID and permissions.
+	ResolveUser(ctx context.Context, provider, externalID string, tenantID uuid.UUID) (*ResolvedUser, error)
 }
 
 // AdminResolver resolves platform-level admin identity.
@@ -31,7 +31,7 @@ type ResolvedUser struct {
 	InternalID uuid.UUID
 
 	// Permissions is the list of permission keys granted to this user
-	// in the resolved context (org-scoped or platform-scoped).
+	// in the resolved context (tenant-scoped or platform-scoped).
 	Permissions []string
 }
 

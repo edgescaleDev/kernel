@@ -11,9 +11,9 @@ import (
 	"gorm.io/gorm"
 )
 
-// ProvisionOrg sets up a new organization: creates per-module schemas,
+// ProvisionTenant sets up a new tenant: creates per-module schemas,
 // inserts core module activations, and calls each module's provision hook.
-func (k *Kernel) ProvisionOrg(ctx context.Context, orgID uuid.UUID, activatedBy uuid.UUID) error {
+func (k *Kernel) ProvisionTenant(ctx context.Context, tenantID uuid.UUID, activatedBy uuid.UUID) error {
 	return k.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// Activate core modules automatically.
 		for _, m := range k.orderedModules() {
@@ -24,7 +24,7 @@ func (k *Kernel) ProvisionOrg(ctx context.Context, orgID uuid.UUID, activatedBy 
 
 			activation := internal.ModuleActivation{
 				ModuleID:    manifest.ID,
-				OrgID:       orgID.String(),
+				TenantID:    tenantID.String(),
 				Active:      true,
 				ActivatedBy: activatedBy.String(),
 				CreatedAt:   time.Now(),
@@ -36,13 +36,13 @@ func (k *Kernel) ProvisionOrg(ctx context.Context, orgID uuid.UUID, activatedBy 
 			}
 		}
 
-		k.logger.Info("org provisioned",
-			"org_id", orgID,
+		k.logger.Info("tenant provisioned",
+			"tenant_id", tenantID,
 			"core_modules", k.coreModuleCount(),
 		)
 
-		if err := k.hooks.FireAfter(ctx, "after.kernel.org.provisioned", sdk.OrgProvisionedEvent{
-			OrgID:       orgID,
+		if err := k.hooks.FireAfter(ctx, "after.kernel.tenant.provisioned", sdk.TenantProvisionedEvent{
+			TenantID:    tenantID,
 			ActivatedBy: activatedBy,
 		}); err != nil {
 			k.logger.Error("provision hooks failed", "error", err)
@@ -52,38 +52,38 @@ func (k *Kernel) ProvisionOrg(ctx context.Context, orgID uuid.UUID, activatedBy 
 	})
 }
 
-// DeprovisionOrg deactivates all modules for an organization.
+// DeprovisionTenant deactivates all modules for a tenant.
 // Does NOT delete data — that's handled by retention policies.
-func (k *Kernel) DeprovisionOrg(ctx context.Context, orgID uuid.UUID) error {
+func (k *Kernel) DeprovisionTenant(ctx context.Context, tenantID uuid.UUID) error {
 	result := k.db.WithContext(ctx).
 		Model(&internal.ModuleActivation{}).
-		Where("org_id = ?", orgID.String()).
+		Where("tenant_id = ?", tenantID.String()).
 		Update("active", false)
 
 	if result.Error != nil {
-		return fmt.Errorf("deprovision org %s: %w", orgID, result.Error)
+		return fmt.Errorf("deprovision tenant %s: %w", tenantID, result.Error)
 	}
 
 	// Invalidate Redis cache for all modules.
 	if k.redis != nil {
 		for _, m := range k.orderedModules() {
-			cacheKey := fmt.Sprintf("module:%s:active:%s", m.Manifest().ID, orgID)
+			cacheKey := fmt.Sprintf("module:%s:active:%s", m.Manifest().ID, tenantID)
 			k.redis.Del(ctx, cacheKey)
 		}
 	}
 
-	k.logger.Info("org deprovisioned",
-		"org_id", orgID,
+	k.logger.Info("tenant deprovisioned",
+		"tenant_id", tenantID,
 		"modules_deactivated", result.RowsAffected,
 	)
 	return nil
 }
 
-// ActivateModule enables a specific module for an organization.
-func (k *Kernel) ActivateModule(ctx context.Context, moduleID string, orgID uuid.UUID, activatedBy uuid.UUID) error {
+// ActivateModule enables a specific module for a tenant.
+func (k *Kernel) ActivateModule(ctx context.Context, moduleID string, tenantID uuid.UUID, activatedBy uuid.UUID) error {
 	activation := internal.ModuleActivation{
 		ModuleID:    moduleID,
-		OrgID:       orgID.String(),
+		TenantID:    tenantID.String(),
 		Active:      true,
 		ActivatedBy: activatedBy.String(),
 		CreatedAt:   time.Now(),
@@ -91,42 +91,42 @@ func (k *Kernel) ActivateModule(ctx context.Context, moduleID string, orgID uuid
 	}
 
 	result := k.db.WithContext(ctx).
-		Where("module_id = ? AND org_id = ?", moduleID, orgID.String()).
+		Where("module_id = ? AND tenant_id = ?", moduleID, tenantID.String()).
 		Assign(internal.ModuleActivation{Active: true, ActivatedBy: activatedBy.String(), UpdatedAt: time.Now()}).
 		FirstOrCreate(&activation)
 
 	if result.Error != nil {
-		return fmt.Errorf("activate module %q for org %s: %w", moduleID, orgID, result.Error)
+		return fmt.Errorf("activate module %q for tenant %s: %w", moduleID, tenantID, result.Error)
 	}
 
 	// Invalidate cache.
 	if k.redis != nil {
-		cacheKey := fmt.Sprintf("module:%s:active:%s", moduleID, orgID)
+		cacheKey := fmt.Sprintf("module:%s:active:%s", moduleID, tenantID)
 		k.redis.Del(ctx, cacheKey)
 	}
 
-	k.logger.Info("module activated", "module", moduleID, "org_id", orgID)
+	k.logger.Info("module activated", "module", moduleID, "tenant_id", tenantID)
 	return nil
 }
 
-// DeactivateModule disables a specific module for an organization.
-func (k *Kernel) DeactivateModule(ctx context.Context, moduleID string, orgID uuid.UUID) error {
+// DeactivateModule disables a specific module for a tenant.
+func (k *Kernel) DeactivateModule(ctx context.Context, moduleID string, tenantID uuid.UUID) error {
 	result := k.db.WithContext(ctx).
 		Model(&internal.ModuleActivation{}).
-		Where("module_id = ? AND org_id = ?", moduleID, orgID.String()).
+		Where("module_id = ? AND tenant_id = ?", moduleID, tenantID.String()).
 		Update("active", false)
 
 	if result.Error != nil {
-		return fmt.Errorf("deactivate module %q for org %s: %w", moduleID, orgID, result.Error)
+		return fmt.Errorf("deactivate module %q for tenant %s: %w", moduleID, tenantID, result.Error)
 	}
 
 	// Invalidate cache.
 	if k.redis != nil {
-		cacheKey := fmt.Sprintf("module:%s:active:%s", moduleID, orgID)
+		cacheKey := fmt.Sprintf("module:%s:active:%s", moduleID, tenantID)
 		k.redis.Del(ctx, cacheKey)
 	}
 
-	k.logger.Info("module deactivated", "module", moduleID, "org_id", orgID)
+	k.logger.Info("module deactivated", "module", moduleID, "tenant_id", tenantID)
 	return nil
 }
 
