@@ -3,6 +3,7 @@ package sdk
 import (
 	"time"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -57,7 +58,7 @@ type Timestamped struct {
 //	    Total     int64     `json:"total"`
 //	}
 type BaseModel struct {
-	ID uint64 `json:"id" gorm:"primaryKey"`
+	ID uuid.UUID `json:"id" gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
 	Timestamped
 	SoftDeletable
 }
