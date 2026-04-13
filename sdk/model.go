@@ -1,6 +1,9 @@
 package sdk
 
 import (
+	"database/sql/driver"
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -61,4 +64,51 @@ type BaseModel struct {
 	ID uuid.UUID `json:"id" gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
 	Timestamped
 	SoftDeletable
+}
+
+// JSONB is a cross-database compatible JSON column type.
+// Unlike json.RawMessage, it implements sql.Scanner to handle both
+// []byte (PostgreSQL) and string (SQLite) driver values.
+type JSONB json.RawMessage
+
+// Value implements driver.Valuer — returns raw JSON bytes.
+func (j JSONB) Value() (driver.Value, error) {
+	if j == nil {
+		return nil, nil
+	}
+	return []byte(j), nil
+}
+
+// Scan implements sql.Scanner — handles both []byte and string.
+func (j *JSONB) Scan(src any) error {
+	if src == nil {
+		*j = nil
+		return nil
+	}
+	switch v := src.(type) {
+	case []byte:
+		cp := make(JSONB, len(v))
+		copy(cp, v)
+		*j = cp
+	case string:
+		*j = JSONB(v)
+	default:
+		return fmt.Errorf("iam: unsupported JSONB scan type %T", src)
+	}
+	return nil
+}
+
+// MarshalJSON passes through raw bytes.
+func (j JSONB) MarshalJSON() ([]byte, error) {
+	if j == nil {
+		return []byte("null"), nil
+	}
+	return json.RawMessage(j).MarshalJSON()
+}
+
+// UnmarshalJSON stores raw bytes.
+func (j *JSONB) UnmarshalJSON(data []byte) error {
+	rm := json.RawMessage(data)
+	*j = JSONB(rm)
+	return nil
 }
