@@ -66,6 +66,14 @@ type BaseModel struct {
 	SoftDeletable
 }
 
+// BeforeCreate generates a UUID if not already set (SQLite compat).
+func (m *BaseModel) BeforeCreate(_ *gorm.DB) error {
+	if m.ID == uuid.Nil {
+		m.ID = uuid.New()
+	}
+	return nil
+}
+
 // JSONB is a cross-database compatible JSON column type.
 // Unlike json.RawMessage, it implements sql.Scanner to handle both
 // []byte (PostgreSQL) and string (SQLite) driver values.
