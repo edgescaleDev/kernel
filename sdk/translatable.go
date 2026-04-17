@@ -7,12 +7,12 @@ import (
 )
 
 // TranslatableField stores translated text as a JSON object.
-// Stored as JSONB in PostgreSQL: {"en": "Hello", "ar": "مرحبا"}.
+// Stored as JSONB in PostgreSQL: {"base": "Hello", "ar": "مرحبا"}.
 // Implements GORM's Scanner/Valuer for seamless read/write.
 type TranslatableField map[string]string
 
 // Get returns the translation for the given locale.
-// Falls back to "en" if the locale is not found, then to the first available.
+// Falls back to "base" if the locale is not found, then to the first available.
 func (t TranslatableField) Get(locale string) string {
 	if t == nil {
 		return ""
@@ -20,7 +20,7 @@ func (t TranslatableField) Get(locale string) string {
 	if v, ok := t[locale]; ok {
 		return v
 	}
-	if v, ok := t["en"]; ok {
+	if v, ok := t["base"]; ok {
 		return v
 	}
 	// Return first available.
@@ -30,14 +30,14 @@ func (t TranslatableField) Get(locale string) string {
 	return ""
 }
 
-// T creates a TranslatableField. First arg is the "en" value.
+// T creates a TranslatableField. First arg is the "base" value.
 // Optional subsequent args are locale, value pairs.
 // Panics if an odd number of pairs is provided (missing value for a locale).
-func T(en string, pairs ...string) TranslatableField {
+func T(baseValue string, pairs ...string) TranslatableField {
 	if len(pairs)%2 != 0 {
 		panic(fmt.Sprintf("sdk.T: odd number of pairs (%d); each locale must have a value", len(pairs)))
 	}
-	t := TranslatableField{"en": en}
+	t := TranslatableField{"base": baseValue}
 	for i := 0; i < len(pairs); i += 2 {
 		t[pairs[i]] = pairs[i+1]
 	}
@@ -100,9 +100,9 @@ func (t TranslatableField) Locales() []string {
 	return locales
 }
 
-// String returns the "en" value or first available (for fmt.Stringer).
+// String returns the "base" value or first available (for fmt.Stringer).
 func (t TranslatableField) String() string {
-	return t.Get("en")
+	return t.Get("base")
 }
 
 // Scan implements sql.Scanner for reading JSONB from PostgreSQL.
