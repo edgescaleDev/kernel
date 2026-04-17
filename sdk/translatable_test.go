@@ -5,9 +5,9 @@ import (
 )
 
 func TestTranslatableField_Get(t *testing.T) {
-	tf := TranslatableField{"en": "Hello", "ar": "مرحبا"}
+	tf := TranslatableField{"base": "Hello", "ar": "مرحبا"}
 
-	if got := tf.Get("en"); got != "Hello" {
+	if got := tf.Get("base"); got != "Hello" {
 		t.Errorf("Get(en) = %q, want %q", got, "Hello")
 	}
 	if got := tf.Get("ar"); got != "مرحبا" {
@@ -16,7 +16,7 @@ func TestTranslatableField_Get(t *testing.T) {
 }
 
 func TestTranslatableField_FallbackToEnglish(t *testing.T) {
-	tf := TranslatableField{"en": "Hello", "fr": "Bonjour"}
+	tf := TranslatableField{"base": "Hello", "fr": "Bonjour"}
 
 	if got := tf.Get("de"); got != "Hello" {
 		t.Errorf("Get(de) should fall back to en, got %q", got)
@@ -34,13 +34,13 @@ func TestTranslatableField_FallbackToFirst(t *testing.T) {
 
 func TestTranslatableField_Empty(t *testing.T) {
 	tf := TranslatableField{}
-	if got := tf.Get("en"); got != "" {
+	if got := tf.Get("base"); got != "" {
 		t.Errorf("empty field Get(en) = %q, want empty", got)
 	}
 }
 
 func TestTranslatableField_ScanValue(t *testing.T) {
-	original := TranslatableField{"en": "Hello", "ar": "مرحبا"}
+	original := TranslatableField{"base": "Hello", "ar": "مرحبا"}
 
 	val, err := original.Value()
 	if err != nil {
@@ -52,8 +52,8 @@ func TestTranslatableField_ScanValue(t *testing.T) {
 		t.Fatalf("Scan() error: %v", err)
 	}
 
-	if scanned.Get("en") != "Hello" {
-		t.Errorf("roundtrip en = %q, want %q", scanned.Get("en"), "Hello")
+	if scanned.Get("base") != "Hello" {
+		t.Errorf("roundtrip en = %q, want %q", scanned.Get("base"), "Hello")
 	}
 	if scanned.Get("ar") != "مرحبا" {
 		t.Errorf("roundtrip ar = %q, want %q", scanned.Get("ar"), "مرحبا")
@@ -83,12 +83,12 @@ func TestTranslatableField_ValueNil(t *testing.T) {
 
 func TestTranslatableField_Constructors(t *testing.T) {
 	tf1 := T("Hello", "ar", "Ahlan")
-	if tf1["en"] != "Hello" || tf1["ar"] != "Ahlan" {
+	if tf1["base"] != "Hello" || tf1["ar"] != "Ahlan" {
 		t.Errorf("T() mismatch: %v", tf1)
 	}
 
-	tf2 := Translations("en", "Hi", "es", "Hola")
-	if len(tf2) != 2 || tf2["en"] != "Hi" || tf2["es"] != "Hola" {
+	tf2 := Translations("base", "Hi", "es", "Hola")
+	if len(tf2) != 2 || tf2["base"] != "Hi" || tf2["es"] != "Hola" {
 		t.Errorf("Translations() mismatch: %v", tf2)
 	}
 }
@@ -104,7 +104,7 @@ func TestTranslatableField_SetMerge(t *testing.T) {
 	tf2 := T("Hello", "es", "Hola")
 	tf = tf.Merge(tf2)
 
-	if tf.Get("en") != "Hello" || tf.Get("ar") != "مرحبا" || tf.Get("es") != "Hola" {
+	if tf.Get("base") != "Hello" || tf.Get("ar") != "مرحبا" || tf.Get("es") != "Hola" {
 		t.Errorf("Merge() failed: %v", tf)
 	}
 }

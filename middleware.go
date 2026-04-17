@@ -25,7 +25,7 @@ func (k *Kernel) requestID() gin.HandlerFunc {
 }
 
 // parseLocale extracts the Accept-Language header, takes the primary tag,
-// and defaults to "en" if none is provided. It stores it in context.
+// and defaults to "base" if none is provided. It stores it in context.
 func (k *Kernel) parseLocale() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		locale := c.GetHeader("Accept-Language")
@@ -33,7 +33,7 @@ func (k *Kernel) parseLocale() gin.HandlerFunc {
 			locale = locale[:i]
 		}
 		if locale == "" {
-			locale = "en"
+			locale = "base"
 		}
 		c.Set("locale", locale)
 		c.Next()
