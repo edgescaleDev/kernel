@@ -34,6 +34,7 @@ func (k *Kernel) buildRootCommand() *cobra.Command {
 		k.moduleCommand(),
 		k.tenantCommand(),
 		k.platformCommand(),
+		k.cronCommand(),
 	)
 
 	// Add any custom commands registered by the consumer.

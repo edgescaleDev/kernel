@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -131,4 +132,29 @@ func (s *TestSearchEngine) Search(_ context.Context, _ string, _ SearchQuery) (*
 	return &SearchResult{}, nil
 }
 func (s *TestSearchEngine) Delete(_ context.Context, _ string, _ string) error { return nil }
-func (s *TestSearchEngine) DeleteIndex(_ context.Context, _ string) error       { return nil }
+func (s *TestSearchEngine) DeleteIndex(_ context.Context, _ string) error      { return nil }
+
+// TestLockProvider is an in-memory lock provider for tests.
+// In single-process tests, locks are always acquired successfully.
+type TestLockProvider struct {
+	mu    sync.Mutex
+	locks map[string]bool
+}
+
+func (p *TestLockProvider) Acquire(_ context.Context, key string, _ time.Duration) (func(), bool, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.locks == nil {
+		p.locks = make(map[string]bool)
+	}
+	if p.locks[key] {
+		return nil, false, nil
+	}
+	p.locks[key] = true
+	release := func() {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		delete(p.locks, key)
+	}
+	return release, true, nil
+}

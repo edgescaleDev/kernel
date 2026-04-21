@@ -33,6 +33,12 @@ func (k *Kernel) Shutdown(ctx context.Context) error {
 			collect(k.httpServer.Shutdown(ctx))
 		}
 
+		// Stop cron runner (drain in-progress jobs).
+		if k.cronRunner != nil {
+			k.logger.Info("stopping cron runner")
+			collect(k.cronRunner.stop(ctx))
+		}
+
 		// Shutdown modules in reverse dependency order.
 		for _, id := range k.reverseDepOrder() {
 			for _, m := range k.modules {

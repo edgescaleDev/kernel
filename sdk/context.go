@@ -57,6 +57,11 @@ type Context struct {
 	// Features provides feature flag checking.
 	Features FeatureFlags
 
+	// Lock provides distributed locking. The kernel uses it for cron
+	// deduplication. Modules can use it for their own distributed locking
+	// needs (e.g., preventing double invoice generation).
+	Lock LockProvider
+
 	// readers is the internal reader registry, accessed via GetReader[T]().
 	readers *ReaderRegistry
 

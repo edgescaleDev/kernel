@@ -43,6 +43,17 @@ func (k *Kernel) setupRouter() {
 		kernelAPI.GET("/permissions", k.handleListPermissions)
 	}
 
+	// /_kernel/crons — cron admin API (platform admin only).
+	cronAPI := k.engine.Group("/_kernel/crons")
+	{
+		cronAPI.Use(k.authenticate(), k.requirePlatformAdmin())
+		cronAPI.GET("", k.handleListCrons)
+		cronAPI.GET("/:id/executions", k.handleCronExecutions)
+		cronAPI.POST("/:id/pause", k.handlePauseCron)
+		cronAPI.POST("/:id/resume", k.handleResumeCron)
+		cronAPI.POST("/:id/trigger", k.handleTriggerCron)
+	}
+
 	// Mount each module's routes.
 	for _, m := range k.orderedModules() {
 		// Only modules that implement HttpModule get routes mounted.

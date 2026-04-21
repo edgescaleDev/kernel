@@ -71,6 +71,7 @@ func (t ModuleType) IsCore() bool {
 //   - HttpModule     — exposes HTTP endpoints (via RouteHandlers)
 //   - EventModule    — subscribes to async events
 //   - HookModule     — registers sync interceptors
+//   - CronModule     — declares periodic background jobs
 //   - WorkflowModule — registers Temporal workflows/activities
 //
 // The kernel detects these at init time via type assertion.
@@ -203,6 +204,11 @@ type Manifest struct {
 	// StoragePrefix is the path prefix used by the uploads core service
 	// when storing files owned by entities from this service.
 	StoragePrefix string
+
+	// Crons declares periodic background jobs this module needs.
+	// The kernel's job runner reads these at startup to build the schedule.
+	// Handlers are wired separately via CronModule.RegisterCrons().
+	Crons []CronDef `json:"crons,omitempty"`
 
 	// Tags are consumer-defined labels for grouping and filtering services.
 	// The kernel does not interpret these - they are for the consumer's use.
