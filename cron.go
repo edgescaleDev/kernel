@@ -117,9 +117,8 @@ func (cr *cronRunner) addJob(entry cronEntry) error {
 
 	// Determine job definition type.
 	var jobDef gocron.JobDefinition
-	if strings.HasPrefix(entry.def.Schedule, "@every ") {
+	if durStr, ok := strings.CutPrefix(entry.def.Schedule, "@every "); ok {
 		// @every shorthand — parse as duration job.
-		durStr := strings.TrimPrefix(entry.def.Schedule, "@every ")
 		dur, err := time.ParseDuration(durStr)
 		if err != nil {
 			return fmt.Errorf("invalid @every duration %q: %w", entry.def.Schedule, err)

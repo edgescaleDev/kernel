@@ -231,8 +231,12 @@ func (k *Kernel) cronReadyzCommand() *cobra.Command {
 					}
 					cursor = nextCursor
 				}
-				if !foundAny || !anyRecent {
-					fmt.Println("NOT READY: no cron runner heartbeat")
+				if !foundAny {
+					fmt.Println("NOT READY: no cron runner heartbeat found")
+					os.Exit(1)
+				}
+				if !anyRecent {
+					fmt.Println("NOT READY: all heartbeats stale")
 					os.Exit(1)
 				}
 			}
