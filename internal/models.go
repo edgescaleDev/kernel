@@ -45,3 +45,20 @@ type ModuleActivation struct {
 func (ModuleActivation) TableName() string {
 	return "module_activations"
 }
+
+// CronExecution records a single cron job execution for audit and admin UI.
+type CronExecution struct {
+	ID           string     `gorm:"type:uuid;primaryKey;default:gen_random_uuid();column:id"`
+	CronID       string     `gorm:"column:cron_id;not null"`
+	InstanceID   string     `gorm:"column:instance_id;not null"`
+	StartedAt    time.Time  `gorm:"column:started_at;not null"`
+	FinishedAt   *time.Time `gorm:"column:finished_at"`
+	Status       string     `gorm:"column:status;not null;default:running"`
+	ErrorMessage *string    `gorm:"column:error_message"`
+	Attempt      int        `gorm:"column:attempt;not null;default:1"`
+	CreatedAt    time.Time  `gorm:"column:created_at;autoCreateTime"`
+}
+
+func (CronExecution) TableName() string {
+	return "kernel_cron_executions"
+}

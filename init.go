@@ -77,6 +77,7 @@ func (k *Kernel) buildContext(manifest sdk.Manifest) sdk.Context {
 		Outbox:             outbox,
 		Operations:         k.operationTracker,
 		Features:           k.featureFlags,
+		Lock:               k.lockProvider,
 		ServiceID:          moduleID,
 		ValidPermissionKey: k.validPermissionKey,
 	}

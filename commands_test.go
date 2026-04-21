@@ -19,6 +19,8 @@ func TestKernelMigrations_Embedded(t *testing.T) {
 		"001_schema_migrations.down.sql",
 		"002_module_registry.up.sql",
 		"002_module_registry.down.sql",
+		"003_cron_executions.up.sql",
+		"003_cron_executions.down.sql",
 	}
 
 	for _, name := range expected {
@@ -40,8 +42,8 @@ func TestKernelMigrations_CollectFiles(t *testing.T) {
 		t.Fatalf("CollectMigrationFiles: %v", err)
 	}
 
-	if len(files) != 2 {
-		t.Errorf("expected 2 migration files, got %d: %v", len(files), files)
+	if len(files) != 3 {
+		t.Errorf("expected 3 migration files, got %d: %v", len(files), files)
 	}
 
 	// Verify sort order.
@@ -49,7 +51,10 @@ func TestKernelMigrations_CollectFiles(t *testing.T) {
 		t.Errorf("first file = %q, want 001_schema_migrations.up.sql", files[0])
 	}
 	if len(files) >= 2 && files[1] != "002_module_registry.up.sql" {
-		t.Errorf("last file = %q, want 002_module_registry.up.sql", files[1])
+		t.Errorf("second file = %q, want 002_module_registry.up.sql", files[1])
+	}
+	if len(files) >= 3 && files[2] != "003_cron_executions.up.sql" {
+		t.Errorf("third file = %q, want 003_cron_executions.up.sql", files[2])
 	}
 }
 
@@ -69,7 +74,7 @@ func TestBuildRootCommand(t *testing.T) {
 		cmds[c.Name()] = true
 	}
 
-	for _, name := range []string{"serve", "migrate", "module", "tenant"} {
+	for _, name := range []string{"serve", "migrate", "module", "tenant", "cron"} {
 		if !cmds[name] {
 			t.Errorf("missing subcommand %q", name)
 		}

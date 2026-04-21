@@ -66,6 +66,11 @@ type Kernel struct {
 	outboxWriter     sdk.OutboxWriter
 	operationTracker sdk.OperationTracker
 	featureFlags     sdk.FeatureFlags
+	lockProvider     sdk.LockProvider
+
+	// Cron scheduler.
+	cronRunner  *cronRunner
+	cronEntries []cronEntry
 
 	// Custom CLI commands registered by the consumer.
 	customCommands []*cobra.Command
@@ -194,6 +199,14 @@ func (k *Kernel) SetOperationTracker(tracker sdk.OperationTracker) {
 // Must be called before Serve(). If not set, all feature checks return false.
 func (k *Kernel) SetFeatureFlags(flags sdk.FeatureFlags) {
 	k.featureFlags = flags
+}
+
+// SetLockProvider sets the distributed lock provider.
+// Must be called before Boot(). Used by the cron runner for deduplication
+// and available to modules via sdk.Context.Lock.
+// If not set, a noop lock that always acquires is used (single-instance mode).
+func (k *Kernel) SetLockProvider(provider sdk.LockProvider) {
+	k.lockProvider = provider
 }
 
 // Boot connects to infrastructure, validates the dependency graph,
