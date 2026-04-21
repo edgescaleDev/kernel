@@ -22,6 +22,9 @@ type LockProvider interface {
 	// Acquire attempts to get a distributed lock for the given key.
 	// Returns a release function and true if acquired, or nil and false
 	// if the lock is already held by another instance.
-	// The lock auto-expires after ttl to prevent deadlocks from crashed instances.
+	// The ttl parameter is implementation-dependent: some providers use it
+	// to auto-expire locks, while others may ignore it or only honor it on a
+	// best-effort basis. Callers must not assume auto-expiration unless the
+	// configured provider documents that behavior.
 	Acquire(ctx context.Context, key string, ttl time.Duration) (release func(), acquired bool, err error)
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-co-op/gocron/v2"
@@ -27,13 +28,18 @@ type cronEntry struct {
 
 // cronRunner manages the gocron scheduler and cron lifecycle.
 type cronRunner struct {
-	scheduler     gocron.Scheduler
-	entries       []cronEntry
-	db            *gorm.DB
-	redis         *redis.Client
-	logger        *slog.Logger
-	instanceID    string
-	stopHeartbeat context.CancelFunc
+	scheduler  gocron.Scheduler
+	entries    []cronEntry
+	db         *gorm.DB
+	redis      *redis.Client
+	logger     *slog.Logger
+	instanceID string
+
+	// baseCtx is derived from the ctx passed to start() and is canceled in stop().
+	// All background goroutines and per-job contexts are derived from it, so that
+	// kernel shutdown can interrupt long-running jobs.
+	baseCtx    context.Context
+	cancelBase context.CancelFunc
 }
 
 // newCronRunner creates a new cron runner with gocron integration.
@@ -73,8 +79,13 @@ func (cr *cronRunner) register(entry cronEntry) {
 
 // start registers all jobs with gocron and starts the scheduler.
 func (cr *cronRunner) start(ctx context.Context) error {
+	// Create a base context for the lifetime of the runner. Canceling it
+	// stops the heartbeat, trigger listener, and interrupts in-flight jobs.
+	cr.baseCtx, cr.cancelBase = context.WithCancel(ctx)
+
 	for _, entry := range cr.entries {
 		if err := cr.addJob(entry); err != nil {
+			cr.cancelBase()
 			return fmt.Errorf("register cron %q: %w", entry.qualifiedID, err)
 		}
 	}
@@ -85,10 +96,9 @@ func (cr *cronRunner) start(ctx context.Context) error {
 		"instance", cr.instanceID,
 	)
 
-	// Start heartbeat goroutine for health checks.
-	hbCtx, cancel := context.WithCancel(ctx)
-	cr.stopHeartbeat = cancel
-	go cr.heartbeat(hbCtx)
+	// Start background goroutines bound to the runner's base context.
+	go cr.heartbeat(cr.baseCtx)
+	go cr.listenForTriggers(cr.baseCtx)
 
 	return nil
 }
@@ -107,18 +117,23 @@ func (cr *cronRunner) addJob(entry cronEntry) error {
 
 	// Determine job definition type.
 	var jobDef gocron.JobDefinition
-	if len(entry.def.Schedule) > 0 && entry.def.Schedule[0] == '@' {
+	if strings.HasPrefix(entry.def.Schedule, "@every ") {
 		// @every shorthand — parse as duration job.
-		durStr := entry.def.Schedule[len("@every "):]
+		durStr := strings.TrimPrefix(entry.def.Schedule, "@every ")
 		dur, err := time.ParseDuration(durStr)
 		if err != nil {
 			return fmt.Errorf("invalid @every duration %q: %w", entry.def.Schedule, err)
 		}
 		jobDef = gocron.DurationJob(dur)
 	} else {
-		// Standard cron expression (5 or 6 field).
+		// Standard cron expression (5 or 6 field) or other @ shortcuts (@daily, @weekly, etc.).
+		// Embed the timezone via CRON_TZ so gocron evaluates the schedule in the right location.
+		schedule := entry.def.Schedule
+		if loc != time.UTC {
+			schedule = fmt.Sprintf("CRON_TZ=%s %s", loc.String(), schedule)
+		}
 		// withSeconds=true enables optional 6-field parsing.
-		jobDef = gocron.CronJob(entry.def.Schedule, true)
+		jobDef = gocron.CronJob(schedule, true)
 	}
 
 	// Build job options.
@@ -130,10 +145,6 @@ func (cr *cronRunner) addJob(entry cronEntry) error {
 			gocron.AfterJobRunsWithError(cr.onError(entry)),
 		),
 	}
-
-	// Apply per-job timezone via WithStartAt is not needed;
-	// gocron CronJob supports location parameter.
-	_ = loc // Location is embedded in the cron expression handling by gocron.
 
 	// Create the task with our wrapped handler.
 	_, err := cr.scheduler.NewJob(
@@ -149,17 +160,18 @@ func (cr *cronRunner) addJob(entry cronEntry) error {
 func (cr *cronRunner) wrapHandler(entry cronEntry) func() {
 	return func() {
 		// Check if this cron is paused.
-		if cr.isPaused(entry.qualifiedID) {
+		if cr.isPaused(cr.baseCtx, entry.qualifiedID) {
 			cr.logger.Info("cron skipped (paused)", "cron", entry.qualifiedID)
 			return
 		}
 
-		// Set timeout.
+		// Set timeout, layered on the runner's base context so that kernel
+		// shutdown can interrupt long-running jobs.
 		timeout := entry.def.Timeout
 		if timeout == 0 {
 			timeout = 5 * time.Minute
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		ctx, cancel := context.WithTimeout(cr.baseCtx, timeout)
 		defer cancel()
 
 		startedAt := time.Now()
@@ -257,15 +269,56 @@ func (cr *cronRunner) recordFinish(execID string, status string, err error, atte
 }
 
 // isPaused checks whether a cron is paused via Redis flag.
-func (cr *cronRunner) isPaused(cronID string) bool {
+func (cr *cronRunner) isPaused(ctx context.Context, cronID string) bool {
 	if cr.redis == nil {
 		return false
 	}
-	val, err := cr.redis.Get(context.Background(), "cron:"+cronID+":paused").Result()
+	val, err := cr.redis.Get(ctx, "cron:"+cronID+":paused").Result()
 	if err != nil {
 		return false
 	}
 	return val == "true"
+}
+
+// triggerJob runs the named job immediately via gocron's RunNow.
+func (cr *cronRunner) triggerJob(qualifiedID string) error {
+	for _, j := range cr.scheduler.Jobs() {
+		if j.Name() == qualifiedID {
+			return j.RunNow()
+		}
+	}
+	return fmt.Errorf("cron job %q not found in scheduler", qualifiedID)
+}
+
+// listenForTriggers subscribes to the Redis pattern "cron:trigger:*" and
+// invokes the matching job immediately when a trigger message arrives.
+// This is the counterpart to handleTriggerCron which publishes to the channel.
+func (cr *cronRunner) listenForTriggers(ctx context.Context) {
+	if cr.redis == nil {
+		return
+	}
+
+	pubsub := cr.redis.PSubscribe(ctx, "cron:trigger:*")
+	defer pubsub.Close()
+
+	ch := pubsub.Channel()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case msg, ok := <-ch:
+			if !ok {
+				return
+			}
+			// Extract the cronID from the channel name "cron:trigger:<cronID>".
+			cronID := strings.TrimPrefix(msg.Channel, "cron:trigger:")
+			if err := cr.triggerJob(cronID); err != nil {
+				cr.logger.Error("cron trigger failed", "cron", cronID, "error", err)
+			} else {
+				cr.logger.Info("cron triggered via pub/sub", "cron", cronID)
+			}
+		}
+	}
 }
 
 // heartbeat writes a periodic heartbeat to Redis for CLI health checks.
@@ -298,14 +351,25 @@ func (cr *cronRunner) heartbeat(ctx context.Context) {
 func (cr *cronRunner) stop(ctx context.Context) error {
 	cr.logger.Info("stopping cron runner")
 
-	// Stop heartbeat.
-	if cr.stopHeartbeat != nil {
-		cr.stopHeartbeat()
+	// Cancel base context to stop heartbeat and trigger listener goroutines,
+	// and to interrupt any in-flight job contexts.
+	if cr.cancelBase != nil {
+		cr.cancelBase()
 	}
 
-	// Shutdown gocron — waits for in-progress jobs to finish or ctx to expire.
-	if err := cr.scheduler.Shutdown(); err != nil {
-		return fmt.Errorf("cron scheduler shutdown: %w", err)
+	// Shutdown gocron and bound the wait by ctx.
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- cr.scheduler.Shutdown()
+	}()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			return fmt.Errorf("cron scheduler shutdown: %w", err)
+		}
+	case <-ctx.Done():
+		return fmt.Errorf("cron scheduler shutdown canceled: %w", ctx.Err())
 	}
 
 	cr.logger.Info("cron runner stopped")

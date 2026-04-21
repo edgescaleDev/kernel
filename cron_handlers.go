@@ -42,7 +42,7 @@ type executionInfo struct {
 }
 
 // handleListCrons returns all registered crons with their current paused status.
-// GET /admin/v1/crons
+// GET /_kernel/crons
 func (k *Kernel) handleListCrons(c *gin.Context) {
 	var crons []cronInfo
 
@@ -66,7 +66,7 @@ func (k *Kernel) handleListCrons(c *gin.Context) {
 				Timezone:    tz,
 				Timeout:     timeout.String(),
 				Description: def.Description,
-				Paused:      k.isCronPaused(qualifiedID),
+				Paused:      k.isCronPaused(c.Request.Context(), qualifiedID),
 			}
 
 			if def.Retry != nil {
@@ -84,7 +84,7 @@ func (k *Kernel) handleListCrons(c *gin.Context) {
 }
 
 // handleCronExecutions returns paginated execution history for a cron.
-// GET /admin/v1/crons/:id/executions
+// GET /_kernel/crons/:id/executions
 func (k *Kernel) handleCronExecutions(c *gin.Context) {
 	cronID := c.Param("id")
 	if cronID == "" {
@@ -121,7 +121,7 @@ func (k *Kernel) handleCronExecutions(c *gin.Context) {
 }
 
 // handlePauseCron pauses a cron job by setting a Redis flag.
-// POST /admin/v1/crons/:id/pause
+// POST /_kernel/crons/:id/pause
 func (k *Kernel) handlePauseCron(c *gin.Context) {
 	cronID := c.Param("id")
 	if cronID == "" {
@@ -144,7 +144,7 @@ func (k *Kernel) handlePauseCron(c *gin.Context) {
 }
 
 // handleResumeCron resumes a paused cron job by removing the Redis flag.
-// POST /admin/v1/crons/:id/resume
+// POST /_kernel/crons/:id/resume
 func (k *Kernel) handleResumeCron(c *gin.Context) {
 	cronID := c.Param("id")
 	if cronID == "" {
@@ -167,7 +167,7 @@ func (k *Kernel) handleResumeCron(c *gin.Context) {
 }
 
 // handleTriggerCron triggers an immediate execution of a cron via Redis pub/sub.
-// POST /admin/v1/crons/:id/trigger
+// POST /_kernel/crons/:id/trigger
 func (k *Kernel) handleTriggerCron(c *gin.Context) {
 	cronID := c.Param("id")
 	if cronID == "" {
@@ -190,11 +190,11 @@ func (k *Kernel) handleTriggerCron(c *gin.Context) {
 }
 
 // isCronPaused checks the Redis pause flag for a cron.
-func (k *Kernel) isCronPaused(cronID string) bool {
+func (k *Kernel) isCronPaused(ctx context.Context, cronID string) bool {
 	if k.redis == nil {
 		return false
 	}
-	val, err := k.redis.Get(context.Background(), "cron:"+cronID+":paused").Result()
+	val, err := k.redis.Get(ctx, "cron:"+cronID+":paused").Result()
 	if err != nil {
 		return false
 	}

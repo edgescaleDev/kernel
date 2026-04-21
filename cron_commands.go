@@ -128,34 +128,50 @@ func (k *Kernel) cronHealthzCommand() *cobra.Command {
 				return fmt.Errorf("redis not configured — cannot check heartbeat")
 			}
 
-			// Scan for any cron heartbeat key.
-			keys, err := k.redis.Keys(context.Background(), "cron:heartbeat:*").Result()
-			if err != nil {
-				fmt.Println("UNHEALTHY: cannot reach Redis")
-				os.Exit(1)
+			ctx := context.Background()
+
+			// Incrementally scan for cron heartbeat keys without blocking Redis.
+			var (
+				cursor   uint64
+				foundAny bool
+			)
+			for {
+				keys, nextCursor, err := k.redis.Scan(ctx, cursor, "cron:heartbeat:*", 100).Result()
+				if err != nil {
+					fmt.Println("UNHEALTHY: cannot reach Redis")
+					os.Exit(1)
+				}
+
+				if len(keys) > 0 {
+					foundAny = true
+				}
+
+				for _, key := range keys {
+					val, err := k.redis.Get(ctx, key).Result()
+					if err != nil {
+						continue
+					}
+					ts, err := strconv.ParseInt(val, 10, 64)
+					if err != nil {
+						continue
+					}
+					age := time.Since(time.Unix(ts, 0))
+					if age < 30*time.Second {
+						fmt.Printf("HEALTHY: heartbeat from %s (%s ago)\n",
+							key[len("cron:heartbeat:"):], age.Round(time.Second))
+						return nil
+					}
+				}
+
+				if nextCursor == 0 {
+					break
+				}
+				cursor = nextCursor
 			}
 
-			if len(keys) == 0 {
+			if !foundAny {
 				fmt.Println("UNHEALTHY: no cron runner heartbeat found")
 				os.Exit(1)
-			}
-
-			// Check that at least one heartbeat is recent (< 30s).
-			for _, key := range keys {
-				val, err := k.redis.Get(context.Background(), key).Result()
-				if err != nil {
-					continue
-				}
-				ts, err := strconv.ParseInt(val, 10, 64)
-				if err != nil {
-					continue
-				}
-				age := time.Since(time.Unix(ts, 0))
-				if age < 30*time.Second {
-					fmt.Printf("HEALTHY: heartbeat from %s (%s ago)\n",
-						key[len("cron:heartbeat:"):], age.Round(time.Second))
-					return nil
-				}
 			}
 
 			fmt.Println("UNHEALTHY: all heartbeats stale")
@@ -188,23 +204,35 @@ func (k *Kernel) cronReadyzCommand() *cobra.Command {
 
 			// Check Redis heartbeat.
 			if k.redis != nil {
-				keys, err := k.redis.Keys(context.Background(), "cron:heartbeat:*").Result()
-				if err != nil || len(keys) == 0 {
-					fmt.Println("NOT READY: no cron runner heartbeat")
-					os.Exit(1)
-				}
-
-				anyRecent := false
-				for _, key := range keys {
-					val, _ := k.redis.Get(context.Background(), key).Result()
-					ts, _ := strconv.ParseInt(val, 10, 64)
-					if time.Since(time.Unix(ts, 0)) < 30*time.Second {
-						anyRecent = true
+				ctx := context.Background()
+				var (
+					cursor    uint64
+					anyRecent bool
+					foundAny  bool
+				)
+				for {
+					keys, nextCursor, err := k.redis.Scan(ctx, cursor, "cron:heartbeat:*", 100).Result()
+					if err != nil {
+						fmt.Println("NOT READY: cannot reach Redis")
+						os.Exit(1)
+					}
+					if len(keys) > 0 {
+						foundAny = true
+					}
+					for _, key := range keys {
+						val, _ := k.redis.Get(ctx, key).Result()
+						ts, _ := strconv.ParseInt(val, 10, 64)
+						if time.Since(time.Unix(ts, 0)) < 30*time.Second {
+							anyRecent = true
+						}
+					}
+					if nextCursor == 0 {
 						break
 					}
+					cursor = nextCursor
 				}
-				if !anyRecent {
-					fmt.Println("NOT READY: all heartbeats stale")
+				if !foundAny || !anyRecent {
+					fmt.Println("NOT READY: no cron runner heartbeat")
 					os.Exit(1)
 				}
 			}
