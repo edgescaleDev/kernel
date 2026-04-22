@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"strings"
 	"time"
@@ -88,32 +89,27 @@ func (k *Kernel) recovery() gin.HandlerFunc {
 // Identity and convenience fields in the gin context for downstream use.
 //
 // Context values set on success:
-//   - "identity"         → *sdk.Identity (full identity object)
-//   - "user_id"          → string (IdP subject / external ID)
-//   - "auth_identifier"  → string (email, phone, or other identifier)
-//   - "auth_provider"    → string (e.g., "firebase", "okta")
-//   - "auth_token"       → string (raw bearer token)
+//
+//   - "identity"         -> *sdk.Identity (full identity object)
+//   - "user_id"          -> string (IdP subject / external ID)
+//   - "auth_identifier"  -> string (email, phone, key name, etc.)
+//   - "auth_provider"    -> string (e.g., "firebase", "okta", "apikey")
+//   - "auth_token"       -> string (raw credential, never logged)
 func (k *Kernel) authenticate() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		header := c.GetHeader("Authorization")
-		if header == "" {
-			sdk.Error(c, sdk.Unauthorized("missing Authorization header"))
-			return
-		}
-
-		token := strings.TrimPrefix(header, "Bearer ")
-		if token == header {
-			sdk.Error(c, sdk.Unauthorized("invalid Authorization format, expected <Bearer token>"))
-			return
-		}
-
-		identity, err := k.identityProvider.ValidateToken(c.Request.Context(), token)
+		identity, err := k.identityProvider.Authenticate(
+			c.Request.Context(), c.Request.Header,
+		)
 		if err != nil {
-			k.logger.Warn("authentication failed",
-				"error", err.Error(),
-				"request_id", c.GetString("request_id"),
-			)
-			sdk.Error(c, sdk.Unauthorized("invalid or expired token"))
+			if errors.Is(err, sdk.ErrNoCredentials) {
+				sdk.Error(c, sdk.Unauthorized("missing credentials"))
+			} else {
+				k.logger.Warn("authentication failed",
+					"error", err.Error(),
+					"request_id", c.GetString("request_id"),
+				)
+				sdk.Error(c, sdk.Unauthorized("invalid or expired credentials"))
+			}
 			return
 		}
 
@@ -122,7 +118,7 @@ func (k *Kernel) authenticate() gin.HandlerFunc {
 		c.Set("user_id", identity.Subject)
 		c.Set("auth_identifier", identity.Identifier)
 		c.Set("auth_provider", identity.Provider)
-		c.Set("auth_token", token)
+		c.Set("auth_token", identity.RawCredential)
 		c.Next()
 	}
 }
@@ -156,12 +152,59 @@ func (k *Kernel) resolveTenant() gin.HandlerFunc {
 	}
 }
 
-// resolveUser resolves the authenticated user's internal UUID from their IdP subject,
-// verifies their membership in the current tenant, and loads their tenant-scoped
-// permissions into context for enforcement by sdk.RequirePermission.
+// resolveUser resolves the authenticated identity into a tenant-scoped context.
+//
+// For human users (JWT): resolves the internal UUID from their IdP subject,
+// verifies membership in the current tenant, and loads tenant-scoped permissions.
+//
+// For API keys: extracts the tenant_id and scopes directly from the Identity.Claims.
+// Sets internal_user_id to uuid.Nil (service accounts will be added later).
+//
 // Must be used after authenticate() and resolveTenant().
 func (k *Kernel) resolveUser() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		identityVal, exists := c.Get("identity")
+		if !exists {
+			sdk.Error(c, sdk.Unauthorized("missing identity"))
+			return
+		}
+		identity, ok := identityVal.(*sdk.Identity)
+		if !ok || identity == nil {
+			sdk.Error(c, sdk.Unauthorized("invalid identity"))
+		}
+
+		// ── API key path ──────────────────────────────────────────
+		if identity.Kind == sdk.IdentityKindAPIKey {
+			// API keys carry their own tenant + scopes in Claims.
+			tenantIDStr, ok := identity.Claims["tenant_id"].(string)
+			if !ok || tenantIDStr == "" {
+				sdk.Error(c, sdk.Unauthorized("invalid api key: missing tenant_id in claims"))
+				return
+			}
+			keyTenantID, err := uuid.Parse(tenantIDStr)
+			if err != nil {
+				sdk.Error(c, sdk.Unauthorized("invalid api key: malformed tenant_id"))
+				return
+			}
+
+			// Verify the key's tenant matches the tenant in the URL (if present).
+			if v, urlExists := c.Get("tenant_id"); urlExists {
+				if urlTenantID := v.(uuid.UUID); urlTenantID != keyTenantID {
+					sdk.Error(c, sdk.Forbidden("api key does not belong to this tenant"))
+					return
+				}
+			}
+			c.Set("tenant_id", keyTenantID)
+			c.Set("internal_user_id", uuid.Nil)
+			c.Set("identity_kind", string(sdk.IdentityKindAPIKey))
+
+			scopes := extractStringSlice(identity.Claims["scopes"])
+			c.Set("permissions", sdk.NewPermissionSet(scopes))
+			c.Next()
+			return
+		}
+
+		// ── Human user path (existing logic) ──────────────────────
 		if k.userResolver == nil {
 			sdk.Error(c, sdk.Forbidden("no user resolver configured"))
 			return
@@ -297,5 +340,35 @@ func (k *Kernel) requirePlatformAdmin() gin.HandlerFunc {
 		c.Set("internal_user_id", resolved.InternalID)
 		c.Set("permissions", sdk.NewPermissionSet(resolved.Permissions))
 		c.Next()
+	}
+}
+
+// extractStringSlice coerces a claim value into []string.
+// Handles the common representations produced by JSON decoding and
+// typed providers:
+//   - []string  (typed provider)
+//   - []any     (json.Unmarshal into map[string]any)
+//   - string    (comma-delimited, e.g. "read,write")
+//
+// Returns nil if the value is nil or an unrecognised type (fail-closed).
+func extractStringSlice(v any) []string {
+	switch val := v.(type) {
+	case []string:
+		return val
+	case []any:
+		out := make([]string, 0, len(val))
+		for _, elem := range val {
+			if s, ok := elem.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	case string:
+		if val == "" {
+			return nil
+		}
+		return strings.Split(val, ",")
+	default:
+		return nil
 	}
 }
