@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"go.edgescale.dev/kernel/sdk"
 )
 
@@ -343,5 +344,254 @@ func TestListModules(t *testing.T) {
 	}
 	if len(body.Result) != 2 {
 		t.Errorf("modules count = %d, want 2", len(body.Result))
+	}
+}
+
+// ── resolveUser: API key path ─────────────────────────────────────────────────
+
+// setupResolveUserRouter creates a gin router with the resolveUser middleware
+// and a terminal handler that records the context values for assertions.
+// The pre middleware sets "identity" (and optionally "tenant_id") on the context
+// before resolveUser runs.
+func setupResolveUserRouter(k *Kernel, pre gin.HandlerFunc) *gin.Engine {
+	r := gin.New()
+	r.Use(pre)
+	r.Use(k.resolveUser())
+	r.GET("/test", func(c *gin.Context) {
+		c.String(200, "ok")
+	})
+	return r
+}
+
+func TestResolveUser_APIKey_ValidKey(t *testing.T) {
+	k := New(DefaultConfig())
+	tenantID := "550e8400-e29b-41d4-a716-446655440000"
+
+	r := setupResolveUserRouter(k, func(c *gin.Context) {
+		c.Set("identity", &sdk.Identity{
+			Subject:  "key-abc",
+			Provider: "apikey",
+			Kind:     sdk.IdentityKindAPIKey,
+			Claims: map[string]any{
+				"tenant_id": tenantID,
+				"scopes":    []string{"orders.create", "orders.read"},
+			},
+		})
+		c.Next()
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/test", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("valid api key status = %d, want 200", w.Code)
+	}
+}
+
+func TestResolveUser_APIKey_ScopesFromJSONDecoding(t *testing.T) {
+	// Simulates claims from json.Unmarshal where arrays are []any, not []string.
+	k := New(DefaultConfig())
+	tenantID := "550e8400-e29b-41d4-a716-446655440000"
+
+	var captured *sdk.PermissionSet
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("identity", &sdk.Identity{
+			Subject:  "key-json",
+			Provider: "apikey",
+			Kind:     sdk.IdentityKindAPIKey,
+			Claims: map[string]any{
+				"tenant_id": tenantID,
+				"scopes":    []any{"billing.read", "billing.create"},
+			},
+		})
+		c.Next()
+	})
+	r.Use(k.resolveUser())
+	r.GET("/test", func(c *gin.Context) {
+		v, _ := c.Get("permissions")
+		captured = v.(*sdk.PermissionSet)
+		c.String(200, "ok")
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/test", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("json scopes status = %d, want 200", w.Code)
+	}
+	if captured == nil {
+		t.Fatal("permissions not set")
+	}
+	if !captured.Has("billing.read") {
+		t.Error("should have billing.read permission")
+	}
+	if !captured.Has("billing.create") {
+		t.Error("should have billing.create permission")
+	}
+	if captured.Has("orders.create") {
+		t.Error("should not have orders.create permission")
+	}
+}
+
+func TestResolveUser_APIKey_MissingTenantID(t *testing.T) {
+	k := New(DefaultConfig())
+
+	r := setupResolveUserRouter(k, func(c *gin.Context) {
+		c.Set("identity", &sdk.Identity{
+			Subject:  "key-no-tenant",
+			Provider: "apikey",
+			Kind:     sdk.IdentityKindAPIKey,
+			Claims:   map[string]any{},
+		})
+		c.Next()
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/test", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("missing tenant_id status = %d, want 401", w.Code)
+	}
+}
+
+func TestResolveUser_APIKey_MalformedTenantID(t *testing.T) {
+	k := New(DefaultConfig())
+
+	r := setupResolveUserRouter(k, func(c *gin.Context) {
+		c.Set("identity", &sdk.Identity{
+			Subject:  "key-bad-tenant",
+			Provider: "apikey",
+			Kind:     sdk.IdentityKindAPIKey,
+			Claims: map[string]any{
+				"tenant_id": "not-a-uuid",
+			},
+		})
+		c.Next()
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/test", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("malformed tenant_id status = %d, want 401", w.Code)
+	}
+}
+
+func TestResolveUser_APIKey_TenantMismatch(t *testing.T) {
+	k := New(DefaultConfig())
+	keyTenantID := "550e8400-e29b-41d4-a716-446655440000"
+	urlTenantID := "660e8400-e29b-41d4-a716-446655440000"
+
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		// Simulate resolveTenant having set a different tenant_id from the URL.
+		parsed, _ := uuid.Parse(urlTenantID)
+		c.Set("tenant_id", parsed)
+		c.Set("identity", &sdk.Identity{
+			Subject:  "key-wrong-tenant",
+			Provider: "apikey",
+			Kind:     sdk.IdentityKindAPIKey,
+			Claims: map[string]any{
+				"tenant_id": keyTenantID,
+				"scopes":    []string{"orders.read"},
+			},
+		})
+		c.Next()
+	})
+	r.Use(k.resolveUser())
+	r.GET("/test", func(c *gin.Context) {
+		c.String(200, "ok")
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/test", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("tenant mismatch status = %d, want 403", w.Code)
+	}
+}
+
+func TestResolveUser_APIKey_NilScopes(t *testing.T) {
+	// No scopes in claims → empty permission set (fail-closed).
+	k := New(DefaultConfig())
+	tenantID := "550e8400-e29b-41d4-a716-446655440000"
+
+	var captured *sdk.PermissionSet
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("identity", &sdk.Identity{
+			Subject:  "key-no-scopes",
+			Provider: "apikey",
+			Kind:     sdk.IdentityKindAPIKey,
+			Claims: map[string]any{
+				"tenant_id": tenantID,
+			},
+		})
+		c.Next()
+	})
+	r.Use(k.resolveUser())
+	r.GET("/test", func(c *gin.Context) {
+		v, _ := c.Get("permissions")
+		captured = v.(*sdk.PermissionSet)
+		c.String(200, "ok")
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/test", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("nil scopes status = %d, want 200", w.Code)
+	}
+	if captured == nil {
+		t.Fatal("permissions not set")
+	}
+	if captured.Has("anything") {
+		t.Error("nil scopes should result in empty permission set")
+	}
+}
+
+// ── extractStringSlice ────────────────────────────────────────────────────────
+
+func TestExtractStringSlice(t *testing.T) {
+	tests := []struct {
+		name  string
+		input any
+		want  []string
+	}{
+		{"nil", nil, nil},
+		{"typed []string", []string{"a", "b"}, []string{"a", "b"}},
+		{"[]any from JSON", []any{"x", "y"}, []string{"x", "y"}},
+		{"[]any with non-strings skipped", []any{"a", 42, "b"}, []string{"a", "b"}},
+		{"comma-delimited string", "read,write,delete", []string{"read", "write", "delete"}},
+		{"empty string", "", nil},
+		{"single string", "admin", []string{"admin"}},
+		{"unsupported type", 42, nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractStringSlice(tt.input)
+			if tt.want == nil {
+				if got != nil {
+					t.Errorf("extractStringSlice(%v) = %v, want nil", tt.input, got)
+				}
+				return
+			}
+			if len(got) != len(tt.want) {
+				t.Fatalf("extractStringSlice(%v) len = %d, want %d", tt.input, len(got), len(tt.want))
+			}
+			for i := range tt.want {
+				if got[i] != tt.want[i] {
+					t.Errorf("extractStringSlice(%v)[%d] = %q, want %q", tt.input, i, got[i], tt.want[i])
+				}
+			}
+		})
 	}
 }
