@@ -107,20 +107,29 @@ func TestAuthenticate_InvalidFormat(t *testing.T) {
 	}
 }
 
-// mockIdentityProvider accepts any token and returns a fixed Identity.
+// mockIdentityProvider accepts any Bearer token and returns a fixed Identity.
 type mockIdentityProvider struct{}
 
-func (mockIdentityProvider) ValidateToken(_ context.Context, token string) (*sdk.Identity, error) {
+func (mockIdentityProvider) Authenticate(_ context.Context, headers http.Header) (*sdk.Identity, error) {
+	header := headers.Get("Authorization")
+	if header == "" {
+		return nil, sdk.ErrNoCredentials
+	}
+	if len(header) <= 7 || header[:7] != "Bearer " {
+		return nil, sdk.ErrNoCredentials
+	}
+	token := header[7:]
 	return &sdk.Identity{
-		Subject:      "user-123",
-		Identifier:   "test@example.com",
-		Verified:     true,
-		Provider:     "mock",
-		SignInMethod: "password",
-		ExpiresAt:    time.Now().Add(time.Hour),
+		Subject:       "user-123",
+		Identifier:    "test@example.com",
+		Verified:      true,
+		Provider:      "mock",
+		SignInMethod:  "password",
+		Kind:          sdk.IdentityKindUser,
+		RawCredential: token,
+		ExpiresAt:     time.Now().Add(time.Hour),
 	}, nil
 }
-func (mockIdentityProvider) RevokeToken(_ context.Context, _ string) error { return nil }
 
 func TestAuthenticate_ValidBearer(t *testing.T) {
 	k := New(DefaultConfig())

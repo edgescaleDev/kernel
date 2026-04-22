@@ -14,6 +14,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/spf13/cobra"
 
+	"go.edgescale.dev/kernel/internal"
 	"go.edgescale.dev/kernel/sdk"
 	"gorm.io/gorm"
 )
@@ -84,11 +85,12 @@ func New(cfg Config) *Kernel {
 	logger := slog.Default().With("component", "kernel")
 
 	return &Kernel{
-		cfg:       cfg,
-		logger:    logger,
-		manifests: make(map[string]sdk.Manifest),
-		hooks:     sdk.NewHookRegistry(),
-		readers:   sdk.NewReaderRegistry(),
+		cfg:              cfg,
+		logger:           logger,
+		manifests:        make(map[string]sdk.Manifest),
+		hooks:            sdk.NewHookRegistry(),
+		readers:          sdk.NewReaderRegistry(),
+		identityProvider: internal.NoopIdentityProvider{},
 	}
 
 }

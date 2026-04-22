@@ -2,86 +2,127 @@ package sdk
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"time"
 )
 
-// IdentityProvider validates bearer tokens and returns a canonical identity.
-// The kernel's authenticate() middleware delegates all token verification to
-// this interface, making the auth layer completely IdP-agnostic.
+// IdentityProvider validates credentials from HTTP headers and returns
+// a canonical identity. Implementations handle one auth scheme each
+// (JWT verification, API key lookup, etc.).
 //
-// Implementations exist per provider (Firebase, Okta, Keycloak, Auth0, etc.)
-// and are injected by the consumer at boot time via kernel.SetIdentityProvider().
+// Providers are composed via IdentityProviderChain, which handles
+// routing. Individual providers can assume that if they are called,
+// the request contains credentials they should handle.
 //
 // Usage (consumer main.go):
 //
-//	k := kernel.New(cfg)
-//	k.SetIdentityProvider(firebase.New(firebase.Config{ProjectID: "my-project"}))
-//	// or: k.SetIdentityProvider(okta.New(okta.Config{Domain: "dev-123.okta.com"}))
+//	chain := NewIdentityProviderChain()
+//	chain.AddPrefix("apikey", "Authorization", "Bearer sk_", apiKeyProvider)
+//	chain.AddJWTIssuer("firebase", "https://securetoken.google.com/proj", fbProvider)
+//	k.SetIdentityProvider(chain)
 type IdentityProvider interface {
-	// ValidateToken verifies a bearer token and returns the authenticated identity.
-	// Implementations should handle signature verification, expiry checks, issuer
-	// validation, and any caching strategy (e.g., Redis).
+	// Authenticate extracts credentials from HTTP headers and validates them.
 	//
-	// Returns a non-nil error if the token is invalid, expired, revoked, or
-	// verification fails for any reason. The error message should be safe to
-	// log but MUST NOT be returned to the client (the kernel returns a generic
-	// "unauthorized" message instead).
-	ValidateToken(ctx context.Context, token string) (*Identity, error)
+	// Returns a non-nil error if credentials are present but invalid
+	// (expired, revoked, bad signature). The error is logged but never
+	// returned to the client.
+	//
+	// Returns ErrNoCredentials if no recognizable credentials are found
+	// in the headers (e.g., missing Authorization header, wrong prefix).
+	Authenticate(ctx context.Context, headers http.Header) (*Identity, error)
+}
 
-	// RevokeToken marks a token as revoked so that subsequent ValidateToken
-	// calls reject it. Implementations typically store the token hash in Redis
-	// with a TTL matching the token's remaining lifetime.
+// TokenRevoker is an optional capability for providers that support
+// token blocklisting (e.g., JWT providers storing revoked tokens in Redis).
+// API key providers don't need this - revocation is handled through their
+// management API (DELETE /keys/:id).
+//
+// The IdentityProviderChain implements TokenRevoker by routing to the
+// first matching provider that also implements TokenRevoker.
+//
+// Consumers use type assertion:
+//
+//	if revoker, ok := m.ctx.IdentityProvider.(sdk.TokenRevoker); ok {
+//	    revoker.RevokeToken(ctx, token)
+//	}
+type TokenRevoker interface {
 	RevokeToken(ctx context.Context, token string) error
 }
 
-// Identity is the canonical, provider-agnostic result of token validation.
-// Every IdP (Firebase, Okta, Keycloak, Auth0) maps its token claims into
-// this common shape. Downstream handlers never need to know which IdP issued
-// the token — they work exclusively with this struct.
+// ErrNoCredentials is returned by IdentityProvider.Authenticate when no
+// recognizable credentials are found in the request headers. The middleware
+// maps this to a 401 with "missing credentials".
+var ErrNoCredentials = errors.New("no credentials found")
+
+// IdentityKind distinguishes human users from machine identities.
+type IdentityKind string
+
+const (
+	// IdentityKindUser is the default kind for human users (JWT tokens).
+	IdentityKindUser IdentityKind = "user"
+
+	// IdentityKindAPIKey is used for machine-to-machine API key identities.
+	IdentityKindAPIKey IdentityKind = "apikey"
+)
+
+// Identity is the canonical, provider-agnostic result of authentication.
+// Every IdP (Firebase, Okta, Keycloak, Auth0) and every credential type
+// (JWT, API key) maps its claims into this common shape. Downstream handlers
+// never need to know which provider issued the credential - they work
+// exclusively with this struct.
 //
 // The kernel's authenticate() middleware stores this as c.Set("identity", identity)
 // and extracts convenience fields:
 //
 //	c.Set("user_id", identity.Subject)
 //	c.Set("auth_provider", identity.Provider)
+//	c.Set("auth_token", identity.RawCredential)
 type Identity struct {
-	// Subject is the unique user identifier from the IdP.
-	// Firebase: UID, Okta: sub claim, Keycloak: sub claim.
-	// This maps to the `external_id` column in the IAM users table.
+	// Subject is the unique identifier from the provider.
+	// JWT: UID/sub claim. API key: key UUID.
+	// This maps to the `external_id` column in the IAM users table (for JWTs)
+	// or is the key ID itself (for API keys).
 	Subject string
 
-	// Identifier is the value the user authenticated with.
-	// Its format depends on SignInMethod:
-	//   "phone"      → E.164 phone number (e.g., "+966501234567")
-	//   "password"   → email address
-	//   "google.com" → email address
-	//   "apple.com"  → Apple relay email
-	//   "saml"       → SAML NameID or UPN
-	//   "webauthn"   → credential ID
-	//
-	// This is a single, generic field — SignInMethod tells you how to interpret it.
+	// Identifier is the value the user/key authenticated with.
+	// JWT: email, phone, SAML NameID. API key: key name.
 	Identifier string
 
-	// Verified indicates whether the IdP has confirmed the Identifier.
+	// Verified indicates whether the provider has confirmed the Identifier.
 	// For phone auth this is always true (OTP is the proof).
 	// For email/password it depends on whether the user clicked the verification link.
+	// For API keys this is always true (the key itself is the proof).
 	Verified bool
 
-	// Provider identifies which IdP issued this token.
-	// Examples: "firebase", "okta", "keycloak", "auth0".
-	// Used by the IAM module when creating/matching user records.
+	// Provider identifies which IdP or auth mechanism issued this identity.
+	// Examples: "firebase", "okta", "keycloak", "auth0", "apikey".
+	// Used by the IAM module when creating/matching user records and for
+	// per-tenant provider policy enforcement.
 	Provider string
 
 	// SignInMethod is the specific authentication method used.
-	// Examples: "password", "phone", "google.com", "saml", "oidc".
+	// Examples: "password", "phone", "google.com", "saml", "oidc", "apikey".
 	// Determines how to interpret Identifier and is used for
-	// per-org sign-in provider policy enforcement.
+	// per-tenant sign-in provider policy enforcement.
 	SignInMethod string
+
+	// Kind distinguishes human users from machine identities.
+	// Defaults to IdentityKindUser for JWT providers.
+	// Set to IdentityKindAPIKey for API key providers.
+	// The kernel middleware uses this to choose the right resolveUser path.
+	Kind IdentityKind
+
+	// RawCredential is the raw credential string extracted by the provider.
+	// For JWTs: the full token. For API keys: the raw key (e.g., "sk_abc...").
+	// Stored in context as "auth_token". Never logged or returned to clients.
+	RawCredential string `json:"-"`
 
 	// Claims holds the full decoded token claims for provider-specific logic.
 	// Handlers should prefer the typed fields above; use Claims only when
 	// accessing provider-specific data not covered by the canonical fields
-	// (e.g., a linked email when the user signed in with phone).
+	// (e.g., a linked email when the user signed in with phone, or API key
+	// scopes and tenant_id).
 	Claims map[string]any
 
 	// ExpiresAt is the token's expiration time.

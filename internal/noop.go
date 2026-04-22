@@ -4,19 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 
 	"go.edgescale.dev/kernel/sdk"
 )
 
 // NoopIdentityProvider rejects all authentication attempts.
-// Used when no IdentityProvider is configured — fail-closed by default.
+// Used when no IdentityProvider is configured - fail-closed by default.
 type NoopIdentityProvider struct{}
 
-func (NoopIdentityProvider) ValidateToken(_ context.Context, _ string) (*sdk.Identity, error) {
+func (NoopIdentityProvider) Authenticate(_ context.Context, _ http.Header) (*sdk.Identity, error) {
 	return nil, errors.New("no identity provider configured")
-}
-func (NoopIdentityProvider) RevokeToken(_ context.Context, _ string) error {
-	return errors.New("no identity provider configured")
 }
 
 // NoopEventBus discards all published events and accepts all subscriptions.
