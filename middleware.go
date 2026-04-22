@@ -198,10 +198,7 @@ func (k *Kernel) resolveUser() gin.HandlerFunc {
 			c.Set("internal_user_id", uuid.Nil)
 			c.Set("identity_kind", string(sdk.IdentityKindAPIKey))
 
-			scopes, ok := identity.Claims["scopes"].([]string)
-			if !ok {
-				scopes = nil // no scopes = no permissions (fail-closed)
-			}
+			scopes := extractStringSlice(identity.Claims["scopes"])
 			c.Set("permissions", sdk.NewPermissionSet(scopes))
 			c.Next()
 			return
@@ -343,5 +340,35 @@ func (k *Kernel) requirePlatformAdmin() gin.HandlerFunc {
 		c.Set("internal_user_id", resolved.InternalID)
 		c.Set("permissions", sdk.NewPermissionSet(resolved.Permissions))
 		c.Next()
+	}
+}
+
+// extractStringSlice coerces a claim value into []string.
+// Handles the common representations produced by JSON decoding and
+// typed providers:
+//   - []string  (typed provider)
+//   - []any     (json.Unmarshal into map[string]any)
+//   - string    (comma-delimited, e.g. "read,write")
+//
+// Returns nil if the value is nil or an unrecognised type (fail-closed).
+func extractStringSlice(v any) []string {
+	switch val := v.(type) {
+	case []string:
+		return val
+	case []any:
+		out := make([]string, 0, len(val))
+		for _, elem := range val {
+			if s, ok := elem.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	case string:
+		if val == "" {
+			return nil
+		}
+		return strings.Split(val, ",")
+	default:
+		return nil
 	}
 }
