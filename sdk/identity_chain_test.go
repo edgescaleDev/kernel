@@ -15,7 +15,9 @@ import (
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
 
-// mockProvider returns a fixed identity for any request with the right header.
+// mockProvider returns a fixed identity (or error) for any request,
+// ignoring headers. The chain is responsible for routing; this mock
+// only verifies that the correct provider was selected.
 type mockProvider struct {
 	name     string
 	identity *Identity
