@@ -17,9 +17,15 @@ func ScopedDB(db *gorm.DB, schema string) *gorm.DB {
 	scoped := db.Session(&gorm.Session{NewDB: true})
 
 	callback := func(tx *gorm.DB) {
-		// SET LOCAL is transaction-scoped; it reverts on COMMIT/ROLLBACK,
-		// so the pooled connection is never left with a stale search_path.
-		tx.Exec(setSQL)
+		// Use the underlying ConnPool directly to bypass GORM's callback
+		// pipeline. Using tx.Exec() here would re-enter the Raw callback,
+		// causing infinite recursion and a stack overflow.
+		if tx.Statement != nil && tx.Statement.ConnPool != nil {
+			_, err := tx.Statement.ConnPool.ExecContext(tx.Statement.Context, setSQL)
+			if err != nil {
+				_ = tx.AddError(err)
+			}
+		}
 	}
 
 	_ = scoped.Callback().Create().Before("gorm:create").Register(callbackName+"_create", callback)
