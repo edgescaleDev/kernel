@@ -129,7 +129,22 @@ func (c *IdentityProviderChain) RegisteredProviders() []string {
 // Phase 2: Check for Bearer JWT and route by issuer.
 // Phase 3: Try fallback provider.
 // Phase 4: Return ErrNoCredentials.
+//
+// The provider is resolved under lock and the lock is released before
+// calling Authenticate, so network I/O in the provider cannot block
+// concurrent registrations or reads.
 func (c *IdentityProviderChain) Authenticate(ctx context.Context, headers http.Header) (*Identity, error) {
+	provider, err := c.resolveProvider(headers)
+	if err != nil {
+		return nil, err
+	}
+	return provider.Authenticate(ctx, headers)
+}
+
+// resolveProvider selects the correct IdentityProvider for the given
+// request headers under the read lock. Returns ErrNoCredentials if no
+// provider matches.
+func (c *IdentityProviderChain) resolveProvider(headers http.Header) (IdentityProvider, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -137,7 +152,7 @@ func (c *IdentityProviderChain) Authenticate(ctx context.Context, headers http.H
 	for _, e := range c.prefixEntries {
 		val := headers.Get(e.header)
 		if val != "" && strings.HasPrefix(val, e.prefix) {
-			return e.provider.Authenticate(ctx, headers)
+			return e.provider, nil
 		}
 	}
 
@@ -149,19 +164,19 @@ func (c *IdentityProviderChain) Authenticate(ctx context.Context, headers http.H
 		issuer, err := extractJWTIssuer(token)
 		if err == nil && issuer != "" {
 			if entry, ok := c.issuerMap[issuer]; ok {
-				return entry.provider.Authenticate(ctx, headers)
+				return entry.provider, nil
 			}
 		}
 
-		// JWT but unknown issuer - try fallback.
+		// Bearer token not routed by issuer (unknown/missing issuer or non-JWT) - try fallback.
 		if c.fallback != nil {
-			return c.fallback.provider.Authenticate(ctx, headers)
+			return c.fallback.provider, nil
 		}
 	}
 
 	// Phase 3: Non-Bearer header present but no match - try fallback.
 	if authHeader != "" && c.fallback != nil {
-		return c.fallback.provider.Authenticate(ctx, headers)
+		return c.fallback.provider, nil
 	}
 
 	// Phase 4: No credentials found.
@@ -171,7 +186,21 @@ func (c *IdentityProviderChain) Authenticate(ctx context.Context, headers http.H
 // RevokeToken routes revocation to the correct provider that implements
 // TokenRevoker. Only JWT providers typically need revocation; API key
 // providers handle it through their management API.
+//
+// The provider is resolved under lock and the lock is released before
+// calling RevokeToken, so network I/O in the revoker cannot block
+// concurrent registrations or reads.
 func (c *IdentityProviderChain) RevokeToken(ctx context.Context, token string) error {
+	revoker := c.resolveRevoker(token)
+	if revoker == nil {
+		return nil
+	}
+	return revoker.RevokeToken(ctx, token)
+}
+
+// resolveRevoker finds the TokenRevoker for the given token under the
+// read lock and returns it (or nil).
+func (c *IdentityProviderChain) resolveRevoker(token string) TokenRevoker {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -179,7 +208,7 @@ func (c *IdentityProviderChain) RevokeToken(ctx context.Context, token string) e
 	if issuer, err := extractJWTIssuer(token); err == nil && issuer != "" {
 		if entry, ok := c.issuerMap[issuer]; ok {
 			if revoker, ok := entry.provider.(TokenRevoker); ok {
-				return revoker.RevokeToken(ctx, token)
+				return revoker
 			}
 			return nil // provider doesn't support revocation
 		}
@@ -187,7 +216,7 @@ func (c *IdentityProviderChain) RevokeToken(ctx context.Context, token string) e
 
 	if c.fallback != nil {
 		if revoker, ok := c.fallback.provider.(TokenRevoker); ok {
-			return revoker.RevokeToken(ctx, token)
+			return revoker
 		}
 	}
 

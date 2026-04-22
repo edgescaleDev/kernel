@@ -13,7 +13,10 @@ import (
 // Used when no IdentityProvider is configured - fail-closed by default.
 type NoopIdentityProvider struct{}
 
-func (NoopIdentityProvider) Authenticate(_ context.Context, _ http.Header) (*sdk.Identity, error) {
+func (NoopIdentityProvider) Authenticate(_ context.Context, headers http.Header) (*sdk.Identity, error) {
+	if headers.Get("Authorization") == "" {
+		return nil, sdk.ErrNoCredentials
+	}
 	return nil, errors.New("no identity provider configured")
 }
 

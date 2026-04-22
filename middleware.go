@@ -168,7 +168,10 @@ func (k *Kernel) resolveUser() gin.HandlerFunc {
 			sdk.Error(c, sdk.Unauthorized("missing identity"))
 			return
 		}
-		identity := identityVal.(*sdk.Identity)
+		identity, ok := identityVal.(*sdk.Identity)
+		if !ok || identity == nil {
+			sdk.Error(c, sdk.Unauthorized("invalid identity"))
+		}
 
 		// ── API key path ──────────────────────────────────────────
 		if identity.Kind == sdk.IdentityKindAPIKey {
