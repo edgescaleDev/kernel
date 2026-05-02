@@ -13,8 +13,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
-	"go.edgescale.dev/kernel/internal"
-	"go.edgescale.dev/kernel/sdk"
+	"github.com/edgescaleDev/kernel/internal"
+	"github.com/edgescaleDev/kernel/sdk"
 )
 
 // buildRootCommand constructs the Cobra command tree for the kernel.

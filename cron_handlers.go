@@ -8,8 +8,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"go.edgescale.dev/kernel/internal"
-	"go.edgescale.dev/kernel/sdk"
+	"github.com/edgescaleDev/kernel/internal"
+	"github.com/edgescaleDev/kernel/sdk"
 )
 
 // cronInfo is the JSON shape returned by the admin cron endpoints.

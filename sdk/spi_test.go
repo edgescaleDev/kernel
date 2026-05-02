@@ -3,7 +3,7 @@ package sdk_test
 import (
 	"testing"
 
-	"go.edgescale.dev/kernel/sdk"
+	"github.com/edgescaleDev/kernel/sdk"
 )
 
 func TestServiceType_String(t *testing.T) {

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edgescaleDev/kernel/sdk"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"go.edgescale.dev/kernel/sdk"
 )
 
 // requestID generates a unique request ID and sets it on the context and response header.

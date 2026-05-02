@@ -7,8 +7,8 @@ import (
 	"regexp"
 	"strings"
 
-	"go.edgescale.dev/kernel/internal"
-	"go.edgescale.dev/kernel/sdk"
+	"github.com/edgescaleDev/kernel/internal"
+	"github.com/edgescaleDev/kernel/sdk"
 	"gorm.io/gorm"
 )
 

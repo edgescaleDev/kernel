@@ -6,8 +6,8 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"go.edgescale.dev/kernel/internal"
-	"go.edgescale.dev/kernel/sdk"
+	"github.com/edgescaleDev/kernel/internal"
+	"github.com/edgescaleDev/kernel/sdk"
 )
 
 // ─── validateSchema ───────────────────────────────────────────────────────────
@@ -50,9 +50,9 @@ func TestValidateSchema_Invalid(t *testing.T) {
 
 func TestCollectMigrationFiles_SortedOrder(t *testing.T) {
 	memFS := fstest.MapFS{
-		"003_third.up.sql":  &fstest.MapFile{Data: []byte("-- v3")},
-		"001_first.up.sql":  &fstest.MapFile{Data: []byte("-- v1")},
-		"002_second.up.sql": &fstest.MapFile{Data: []byte("-- v2")},
+		"003_third.up.sql":   &fstest.MapFile{Data: []byte("-- v3")},
+		"001_first.up.sql":   &fstest.MapFile{Data: []byte("-- v1")},
+		"002_second.up.sql":  &fstest.MapFile{Data: []byte("-- v2")},
 		"001_first.down.sql": &fstest.MapFile{Data: []byte("-- d1")},
 	}
 

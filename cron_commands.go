@@ -10,7 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"go.edgescale.dev/kernel/sdk"
+	"github.com/edgescaleDev/kernel/sdk"
 )
 
 // cronCommand builds the `kernel cron` sub-command tree:
