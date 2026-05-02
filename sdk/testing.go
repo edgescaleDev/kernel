@@ -1,7 +1,9 @@
 package sdk
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"log/slog"
 	"sync"
 	"time"
@@ -26,6 +28,7 @@ func NewTestContext(moduleID string) *Context {
 		Audit:     &TestAuditLogger{},
 		Tasks:     &TestTaskExecutor{},
 		Search:    &TestSearchEngine{},
+		Storage:   &TestObjectStore{},
 		readers:   NewReaderRegistry(),
 		ServiceID: moduleID,
 	}
@@ -157,4 +160,120 @@ func (p *TestLockProvider) Acquire(_ context.Context, key string, _ time.Duratio
 		delete(p.locks, key)
 	}
 	return release, true, nil
+}
+
+// TestObjectStore is an in-memory object store for tests.
+// It implements both ObjectStore and Uploader for full test coverage.
+type TestObjectStore struct {
+	mu      sync.Mutex
+	objects map[string]testObject // key: "bucket/key"
+}
+
+type testObject struct {
+	data        []byte
+	contentType string
+	metadata    map[string]string
+	modifiedAt  time.Time
+}
+
+func (s *TestObjectStore) init() {
+	if s.objects == nil {
+		s.objects = make(map[string]testObject)
+	}
+}
+
+func (s *TestObjectStore) PresignURL(_ context.Context, input PresignInput) (*PresignResult, error) {
+	return &PresignResult{
+		URL:       "https://test-storage.example.com/" + input.Bucket + "/" + input.Key,
+		Method:    input.Method,
+		ExpiresAt: time.Now().Add(input.Expiry),
+	}, nil
+}
+
+func (s *TestObjectStore) PublicURL(_ context.Context, bucket string, key string) string {
+	return "https://test-cdn.example.com/" + bucket + "/" + key
+}
+
+func (s *TestObjectStore) Delete(_ context.Context, bucket string, key string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.init()
+	delete(s.objects, bucket+"/"+key)
+	return nil
+}
+
+func (s *TestObjectStore) Head(_ context.Context, bucket string, key string) (*ObjectInfo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.init()
+	obj, ok := s.objects[bucket+"/"+key]
+	if !ok {
+		return nil, NotFound("object", key)
+	}
+	return &ObjectInfo{
+		Bucket:       bucket,
+		Key:          key,
+		Size:         int64(len(obj.data)),
+		ContentType:  obj.contentType,
+		LastModified: obj.modifiedAt,
+		Metadata:     obj.metadata,
+	}, nil
+}
+
+func (s *TestObjectStore) Upload(_ context.Context, input UploadInput) (*ObjectInfo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.init()
+	data, err := io.ReadAll(input.Body)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	s.objects[input.Bucket+"/"+input.Key] = testObject{
+		data:        data,
+		contentType: input.ContentType,
+		metadata:    input.Metadata,
+		modifiedAt:  now,
+	}
+	return &ObjectInfo{
+		Bucket:       input.Bucket,
+		Key:          input.Key,
+		Size:         int64(len(data)),
+		ContentType:  input.ContentType,
+		LastModified: now,
+		Metadata:     input.Metadata,
+	}, nil
+}
+
+func (s *TestObjectStore) Download(_ context.Context, bucket string, key string) (*ObjectReader, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.init()
+	obj, ok := s.objects[bucket+"/"+key]
+	if !ok {
+		return nil, NotFound("object", key)
+	}
+	return &ObjectReader{
+		Body: io.NopCloser(bytes.NewReader(obj.data)),
+		Info: ObjectInfo{
+			Bucket:       bucket,
+			Key:          key,
+			Size:         int64(len(obj.data)),
+			ContentType:  obj.contentType,
+			LastModified: obj.modifiedAt,
+			Metadata:     obj.metadata,
+		},
+	}, nil
+}
+
+// Objects returns all stored object keys. Thread-safe.
+func (s *TestObjectStore) Objects() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.init()
+	keys := make([]string, 0, len(s.objects))
+	for k := range s.objects {
+		keys = append(keys, k)
+	}
+	return keys
 }
