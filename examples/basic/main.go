@@ -7,9 +7,9 @@ import (
 	"io/fs"
 	"testing/fstest"
 
+	"github.com/edgescaleDev/kernel"
+	"github.com/edgescaleDev/kernel/sdk"
 	"github.com/gin-gonic/gin"
-	"go.edgescale.dev/kernel"
-	"go.edgescale.dev/kernel/sdk"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 # Kernel Framework
 
-The **Kernel Framework** (`go.edgescale.dev/kernel`) is a domain-agnostic, microkernel-based modular Go framework designed to power the SaaS OS. It provides a robust, enterprise-grade foundation for building a modular monolith with strict tenant isolation, isolated module boundaries, and standardized infrastructure patterns.
+The **Kernel Framework** (`github.com/edgescaleDev/kernel`) is a domain-agnostic, microkernel-based modular Go framework designed to power the SaaS OS. It provides a robust, enterprise-grade foundation for building a modular monolith with strict tenant isolation, isolated module boundaries, and standardized infrastructure patterns.
 
 ## Features
 

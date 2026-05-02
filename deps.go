@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"slices"
 
-	"go.edgescale.dev/kernel/internal"
+	"github.com/edgescaleDev/kernel/internal"
 )
 
 // validateAndSort validates the dependency graph and returns a topological sort order.

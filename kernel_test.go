@@ -5,8 +5,8 @@ import (
 	"io/fs"
 	"testing"
 
-	"go.edgescale.dev/kernel/internal"
-	"go.edgescale.dev/kernel/sdk"
+	"github.com/edgescaleDev/kernel/internal"
+	"github.com/edgescaleDev/kernel/sdk"
 )
 
 // stubModule is a minimal Module implementation for testing.

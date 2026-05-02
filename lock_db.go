@@ -6,7 +6,7 @@ import (
 	"hash/crc32"
 	"time"
 
-	"go.edgescale.dev/kernel/sdk"
+	"github.com/edgescaleDev/kernel/sdk"
 	"gorm.io/gorm"
 )
 

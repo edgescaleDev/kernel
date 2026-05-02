@@ -3,8 +3,8 @@ package kernel
 import (
 	"net/http"
 
+	"github.com/edgescaleDev/kernel/sdk"
 	"github.com/gin-gonic/gin"
-	"go.edgescale.dev/kernel/sdk"
 )
 
 // handleHealthz is a liveness probe. Returns 200 if the kernel process is running.

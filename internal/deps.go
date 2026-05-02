@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"go.edgescale.dev/kernel/sdk"
+	"github.com/edgescaleDev/kernel/sdk"
 )
 
 // TopoSort performs a topological sort using Kahn's algorithm.

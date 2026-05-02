@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"go.edgescale.dev/kernel/internal"
+	"github.com/edgescaleDev/kernel/internal"
 )
 
 // installFallbacks sets noop implementations for pluggable interfaces

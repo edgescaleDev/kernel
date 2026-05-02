@@ -4,7 +4,7 @@ import (
 	"io/fs"
 	"testing"
 
-	"go.edgescale.dev/kernel/internal"
+	"github.com/edgescaleDev/kernel/internal"
 )
 
 func TestKernelMigrations_Embedded(t *testing.T) {

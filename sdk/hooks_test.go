@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"go.edgescale.dev/kernel/sdk"
+	"github.com/edgescaleDev/kernel/sdk"
 )
 
 func TestHookRegistry_BeforeAfter(t *testing.T) {

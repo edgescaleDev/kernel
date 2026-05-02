@@ -1,7 +1,7 @@
 package kernel
 
 import (
-	"go.edgescale.dev/kernel/internal"
+	"github.com/edgescaleDev/kernel/internal"
 	"gorm.io/gorm"
 )
 

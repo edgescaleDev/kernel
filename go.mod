@@ -1,4 +1,4 @@
-module go.edgescale.dev/kernel
+module github.com/edgescaleDev/kernel
 
 go 1.26.1
 

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"go.edgescale.dev/kernel/sdk"
+	"github.com/edgescaleDev/kernel/sdk"
 )
 
 // initModules builds an sdk.Context for each module and calls Init() in

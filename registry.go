@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"go.edgescale.dev/kernel/internal"
+	"github.com/edgescaleDev/kernel/internal"
 )
 
 // syncRegistry upserts all registered module manifests into the

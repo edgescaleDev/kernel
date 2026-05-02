@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"go.edgescale.dev/kernel/sdk"
+	"github.com/edgescaleDev/kernel/sdk"
 )
 
 func TestNotFound(t *testing.T) {

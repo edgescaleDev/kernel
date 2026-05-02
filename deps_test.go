@@ -3,8 +3,8 @@ package kernel
 import (
 	"testing"
 
-	"go.edgescale.dev/kernel/internal"
-	"go.edgescale.dev/kernel/sdk"
+	"github.com/edgescaleDev/kernel/internal"
+	"github.com/edgescaleDev/kernel/sdk"
 )
 
 func TestTopoSort_Linear(t *testing.T) {
