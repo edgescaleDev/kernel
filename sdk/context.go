@@ -62,6 +62,11 @@ type Context struct {
 	// needs (e.g., preventing double invoice generation).
 	Lock LockProvider
 
+	// Storage provides object/blob storage (pluggable: S3, GCS, MinIO, local, etc.).
+	// Modules use this to generate presigned URLs for client-side uploads/downloads.
+	// For server-side file operations, type-assert to sdk.Uploader.
+	Storage ObjectStore
+
 	// readers is the internal reader registry, accessed via GetReader[T]().
 	readers *ReaderRegistry
 
