@@ -25,7 +25,7 @@ func (k *Kernel) syncRegistry() error {
 			Type:        manifest.Type.String(),
 			SchemaName:  manifest.Schema,
 			Description: manifest.Description,
-			DependsOn:   manifest.DependsOn,
+			DependsOn:   coalesceSlice(manifest.DependsOn),
 		}
 
 		result := k.db.Where("id = ?", record.ID).Assign(record).FirstOrCreate(&record)
@@ -79,4 +79,13 @@ func (k *Kernel) isModuleActive(moduleID string, tenantID string) bool {
 	}
 
 	return activation.Active
+}
+
+// coalesceSlice returns s if non-nil, otherwise an empty slice.
+// Prevents GORM's JSON serializer from writing NULL to NOT NULL columns.
+func coalesceSlice(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }
