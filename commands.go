@@ -352,6 +352,10 @@ func (k *Kernel) tenantProvisionCommand() *cobra.Command {
 				return err
 			}
 
+			if err := k.initModules(); err != nil {
+				return fmt.Errorf("init modules: %w", err)
+			}
+
 			tenantID, err := uuid.Parse(args[0])
 			if err != nil {
 				return fmt.Errorf("invalid tenant ID: %w", err)
@@ -387,6 +391,10 @@ func (k *Kernel) tenantDeprovisionCommand() *cobra.Command {
 
 			if err := k.Boot(); err != nil {
 				return err
+			}
+
+			if err := k.initModules(); err != nil {
+				return fmt.Errorf("init modules: %w", err)
 			}
 
 			tenantID, err := uuid.Parse(args[0])
