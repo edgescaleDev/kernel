@@ -25,7 +25,7 @@ type ModuleRecord struct {
 	Type        string   `gorm:"column:type;not null"`
 	SchemaName  string   `gorm:"column:schema_name;not null"`
 	Description string   `gorm:"column:description"`
-	DependsOn   []string `gorm:"column:depends_on;type:text[];serializer:json"`
+	DependsOn   []string `gorm:"column:depends_on;type:jsonb;serializer:json"`
 }
 
 func (ModuleRecord) TableName() string {
