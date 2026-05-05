@@ -15,8 +15,8 @@ type HookPoint string
 
 // TenantProvisionedEvent is the payload for the "after.kernel.tenant.provisioned" hook.
 type TenantProvisionedEvent struct {
-	TenantID    uuid.UUID
-	ActivatedBy uuid.UUID
+	TenantID    uuid.UUID `json:"tenant_id"`
+	ActivatedBy uuid.UUID `json:"user_id"`
 }
 
 // HookHandler is a function that intercepts a hook point.
