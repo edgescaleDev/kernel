@@ -5,21 +5,26 @@ import (
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
 )
 
-// ScopedDB returns a GORM DB instance that sets the search_path to the given
-// schema at the start of every SQL operation. Unlike a one-shot SET, this
-// approach is pool-safe: each query/transaction gets its own SET LOCAL,
-// which automatically reverts when the connection returns to the pool.
+// ScopedDB returns a GORM DB instance whose queries target the given
+// PostgreSQL schema by schema-qualifying every table name in the SQL.
 //
-// Each call creates a fully independent *gorm.DB that shares the underlying
-// *sql.DB connection pool but has its own callback processor. This prevents
-// search_path callbacks from different modules from interfering with each
-// other (the "last callback wins" problem).
-func ScopedDB(db *gorm.DB, schema string) *gorm.DB {
-	setSQL := fmt.Sprintf("SET LOCAL search_path TO %s, public", schema)
-	callbackName := fmt.Sprintf("kernel:set_search_path_%s", schema)
-
+// Previous implementation used SET LOCAL search_path callbacks, but that
+// approach is broken for read queries: GORM only wraps writes (Create,
+// Update, Delete) in implicit transactions, while reads (Find, First,
+// Take) run without a transaction. SET LOCAL outside a transaction has
+// no effect, and even session-level SET may execute on a different
+// pooled connection than the subsequent SELECT.
+//
+// The NamingStrategy approach embeds the schema directly into table
+// names (e.g. "module_shifts"."shifts"), making it connection-pool-safe
+// and independent of search_path state.
+//
+// Each call creates a fully independent *gorm.DB that shares the
+// underlying *sql.DB connection pool but has its own NamingStrategy.
+func ScopedDB(db *gorm.DB, schemaName string) *gorm.DB {
 	// Obtain the underlying *sql.DB (shared connection pool).
 	sqlDB, err := db.DB()
 	if err != nil {
@@ -27,37 +32,22 @@ func ScopedDB(db *gorm.DB, schema string) *gorm.DB {
 	}
 
 	// Create a fully independent GORM instance using the same connection
-	// pool. The new instance has its own callback processor so registering
-	// SET LOCAL callbacks here will not affect other modules.
+	// pool but with a NamingStrategy that prefixes all table names with
+	// the module's schema (e.g. "module_shifts.").
 	scoped, err := gorm.Open(
 		postgres.New(postgres.Config{Conn: sqlDB}),
 		&gorm.Config{
 			Logger:                 db.Config.Logger,
 			NowFunc:                db.Config.NowFunc,
 			SkipDefaultTransaction: db.Config.SkipDefaultTransaction,
+			NamingStrategy: schema.NamingStrategy{
+				TablePrefix: schemaName + ".",
+			},
 		},
 	)
 	if err != nil {
-		panic(fmt.Sprintf("kernel: scoped_db: cannot create independent DB for schema %q: %v", schema, err))
+		panic(fmt.Sprintf("kernel: scoped_db: cannot create independent DB for schema %q: %v", schemaName, err))
 	}
-
-	callback := func(tx *gorm.DB) {
-		// Use the underlying ConnPool directly to bypass GORM's callback
-		// pipeline. Using tx.Exec() here would re-enter the Raw callback,
-		// causing infinite recursion and a stack overflow.
-		if tx.Statement != nil && tx.Statement.ConnPool != nil {
-			_, err := tx.Statement.ConnPool.ExecContext(tx.Statement.Context, setSQL)
-			if err != nil {
-				_ = tx.AddError(err)
-			}
-		}
-	}
-
-	_ = scoped.Callback().Create().Before("gorm:create").Register(callbackName+"_create", callback)
-	_ = scoped.Callback().Query().Before("gorm:query").Register(callbackName+"_query", callback)
-	_ = scoped.Callback().Update().Before("gorm:update").Register(callbackName+"_update", callback)
-	_ = scoped.Callback().Delete().Before("gorm:delete").Register(callbackName+"_delete", callback)
-	_ = scoped.Callback().Raw().Before("gorm:raw").Register(callbackName+"_raw", callback)
 
 	return scoped
 }
