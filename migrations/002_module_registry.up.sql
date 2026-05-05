@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS public.module_registry (
     type TEXT NOT NULL,
     schema_name TEXT NOT NULL,
     description TEXT,
-    depends_on TEXT [],
+    depends_on JSONB NOT NULL DEFAULT '{}',
     registered_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE TABLE IF NOT EXISTS public.module_activations (
