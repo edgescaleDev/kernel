@@ -2,8 +2,10 @@ package kernel
 
 import (
 	"context"
+	"fmt"
 	"time"
 
+	"github.com/edgescaleDev/kernel/sdk"
 	"github.com/edgescaleDev/kernel/internal"
 )
 
@@ -31,6 +33,10 @@ func (k *Kernel) installFallbacks() {
 		k.logger.Warn("no lock provider set - using noop lock (single-instance mode)")
 		k.lockProvider = &noopLockProvider{}
 	}
+	if k.objectStore == nil {
+		k.logger.Warn("no object store set - storage will be unavailable")
+		k.objectStore = &noopObjectStore{}
+	}
 }
 
 // noopLockProvider always acquires the lock. Used when no distributed
@@ -39,4 +45,24 @@ type noopLockProvider struct{}
 
 func (p *noopLockProvider) Acquire(_ context.Context, _ string, _ time.Duration) (func(), bool, error) {
 	return func() {}, true, nil
+}
+
+// noopObjectStore rejects all storage operations. Used when no object
+// store is configured - modules that need storage will get clear errors.
+type noopObjectStore struct{}
+
+func (s *noopObjectStore) PresignURL(_ context.Context, _ sdk.PresignInput) (*sdk.PresignResult, error) {
+	return nil, fmt.Errorf("no object store configured")
+}
+
+func (s *noopObjectStore) PublicURL(_ context.Context, _ string, _ string) string {
+	return ""
+}
+
+func (s *noopObjectStore) Delete(_ context.Context, _ string, _ string) error {
+	return fmt.Errorf("no object store configured")
+}
+
+func (s *noopObjectStore) Head(_ context.Context, _ string, _ string) (*sdk.ObjectInfo, error) {
+	return nil, fmt.Errorf("no object store configured")
 }

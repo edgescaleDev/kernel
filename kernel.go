@@ -68,6 +68,7 @@ type Kernel struct {
 	operationTracker sdk.OperationTracker
 	featureFlags     sdk.FeatureFlags
 	lockProvider     sdk.LockProvider
+	objectStore      sdk.ObjectStore
 
 	// Cron scheduler.
 	cronRunner  *cronRunner
@@ -209,6 +210,12 @@ func (k *Kernel) SetFeatureFlags(flags sdk.FeatureFlags) {
 // If not set, a noop lock that always acquires is used (single-instance mode).
 func (k *Kernel) SetLockProvider(provider sdk.LockProvider) {
 	k.lockProvider = provider
+}
+
+// SetStorage sets the pluggable object store (S3, GCS, MinIO, local, etc.).
+// Must be called before Boot(). If not set, all storage operations will return errors.
+func (k *Kernel) SetStorage(store sdk.ObjectStore) {
+	k.objectStore = store
 }
 
 // Boot connects to infrastructure, validates the dependency graph,
