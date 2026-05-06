@@ -171,6 +171,7 @@ func (k *Kernel) resolveUser() gin.HandlerFunc {
 		identity, ok := identityVal.(*sdk.Identity)
 		if !ok || identity == nil {
 			sdk.Error(c, sdk.Unauthorized("invalid identity"))
+			return
 		}
 
 		// ── API key path ──────────────────────────────────────────
@@ -250,6 +251,13 @@ func (k *Kernel) resolveUser() gin.HandlerFunc {
 			// Delegate to the user resolver (IAM module or similar).
 			resolved, err := k.userResolver.ResolveUser(c.Request.Context(), provider, sub, tenantID)
 			if err != nil || resolved == nil {
+				k.logger.Warn("user resolution failed",
+					"provider", provider,
+					"subject", sub,
+					"tenant_id", tenantID.String(),
+					"error", err,
+					"request_id", c.GetString("request_id"),
+				)
 				sdk.Error(c, sdk.Forbidden("user not found or not a member of this tenant"))
 				return
 			}
