@@ -13,6 +13,10 @@ import (
 type UserResolver interface {
 	// ResolveUser looks up the internal user for the given external identity
 	// within the specified tenant, and returns their ID and permissions.
+	//
+	// When tenantID is uuid.Nil, the resolver should return only the
+	// internal user ID without checking membership or resolving permissions.
+	// This is used by global (non-tenant) routes to identify the caller.
 	ResolveUser(ctx context.Context, provider, externalID string, tenantID uuid.UUID) (*ResolvedUser, error)
 }
 

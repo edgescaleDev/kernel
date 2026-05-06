@@ -271,6 +271,67 @@ func (k *Kernel) resolveUser() gin.HandlerFunc {
 	}
 }
 
+// resolveGlobalUser resolves the authenticated identity into an internal
+// user UUID for global (non-tenant) routes. Unlike resolveUser, this does
+// not require a tenant context and does not resolve permissions.
+//
+// It calls UserResolver.ResolveUser with uuid.Nil as the tenant ID, which
+// signals the resolver to return only the internal user ID without checking
+// membership or resolving permissions.
+//
+// Sets internal_user_id in the gin context. If no UserResolver is
+// configured, the middleware is a no-op (internal_user_id will be absent).
+//
+// Must be used after authenticate().
+func (k *Kernel) resolveGlobalUser() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if k.userResolver == nil {
+			c.Next()
+			return
+		}
+
+		sub := c.GetString("user_id")
+		provider := c.GetString("auth_provider")
+		if sub == "" {
+			c.Next()
+			return
+		}
+
+		// Check Redis cache for the resolved identity.
+		cacheKey := "middleware_identity:" + provider + ":" + sub
+		var internalID uuid.UUID
+		var cacheHit bool
+
+		if k.redis != nil {
+			if cached, err := k.redis.Get(c.Request.Context(), cacheKey).Result(); err == nil {
+				if parsed, parseErr := uuid.Parse(cached); parseErr == nil {
+					internalID = parsed
+					cacheHit = true
+				}
+			}
+		}
+
+		if !cacheHit {
+			resolved, err := k.userResolver.ResolveUser(c.Request.Context(), provider, sub, uuid.Nil)
+			if err != nil || resolved == nil || resolved.InternalID == uuid.Nil {
+				// User does not exist yet (e.g., first-time IdP user).
+				// Allow the request to proceed without internal_user_id.
+				c.Next()
+				return
+			}
+			internalID = resolved.InternalID
+
+			// Store in cache.
+			if k.redis != nil && k.cfg.Server.CacheTTL > 0 {
+				k.redis.Set(c.Request.Context(), cacheKey, internalID.String(), k.cfg.Server.CacheTTL)
+			}
+		}
+
+		c.Set("internal_user_id", internalID)
+		c.Next()
+	}
+}
+
 // moduleActivation checks whether a module is active for the requesting tenant.
 // Core modules always pass. Feature/integration modules are checked against
 // the module_activations table (cached in Redis).

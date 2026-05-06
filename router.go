@@ -73,6 +73,7 @@ func (k *Kernel) setupRouter() {
 			case sdk.RouteClient:
 				// Global authenticated: /v1/{module_id}/ — auth only, no tenant context.
 				globalAuth := v1.Group("/" + moduleID)
+				globalAuth.Use(k.resolveGlobalUser())
 
 				// Tenant-scoped: /v1/:tenant_id/{module_id}/ — full tenant context.
 				tenantAuth := k.engine.Group("/v1/:tenant_id/" + moduleID)
