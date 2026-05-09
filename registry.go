@@ -41,6 +41,8 @@ func (k *Kernel) syncRegistry() error {
 // isModuleActive checks whether a module is active for the given tenant.
 // Core modules always return true. Feature/integration modules check
 // the module_activations table (Redis cached).
+//
+// Activations with a non-nil expires_at in the past are treated as inactive.
 func (k *Kernel) isModuleActive(moduleID string, tenantID string) bool {
 	manifest, exists := k.manifests[moduleID]
 	if !exists {
@@ -52,33 +54,57 @@ func (k *Kernel) isModuleActive(moduleID string, tenantID string) bool {
 		return true
 	}
 
+	now := time.Now()
+
 	// Check Redis cache first.
 	if k.redis != nil {
 		cacheKey := fmt.Sprintf("module:%s:active:%s", moduleID, tenantID)
 		val, err := k.redis.Get(context.Background(), cacheKey).Result()
 		if err == nil {
-			return val == "1"
+			// Cache format: "0" (inactive), "1" (active, no expiry),
+			// or RFC3339 timestamp (active with expiry).
+			switch val {
+			case "0":
+				return false
+			case "1":
+				return true
+			default:
+				// Parse as expiry timestamp.
+				if exp, parseErr := time.Parse(time.RFC3339, val); parseErr == nil {
+					return now.Before(exp)
+				}
+				// Malformed cache entry; fall through to DB.
+			}
 		}
 	}
 
 	// Fall back to database.
 	var activation internal.ModuleActivation
-	result := k.db.Where("module_id = ? AND tenant_id = ?", moduleID, tenantID).First(&activation)
+	result := k.db.
+		Where("module_id = ? AND tenant_id = ? AND active = true", moduleID, tenantID).
+		First(&activation)
 	if result.Error != nil {
 		return false
 	}
 
+	// Check expiry.
+	active := activation.ExpiresAt == nil || now.Before(*activation.ExpiresAt)
+
 	// Cache the result for 1 minute.
 	if k.redis != nil {
 		cacheKey := fmt.Sprintf("module:%s:active:%s", moduleID, tenantID)
-		val := "0"
-		if activation.Active {
+		var val string
+		if !active {
+			val = "0"
+		} else if activation.ExpiresAt == nil {
 			val = "1"
+		} else {
+			val = activation.ExpiresAt.Format(time.RFC3339)
 		}
 		k.redis.Set(context.Background(), cacheKey, val, time.Minute)
 	}
 
-	return activation.Active
+	return active
 }
 
 // coalesceSlice returns s if non-nil, otherwise an empty slice.

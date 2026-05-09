@@ -342,8 +342,26 @@ func (k *Kernel) validateCronRegistrations(manifest sdk.Manifest, handlers map[s
 
 // startCronRunner builds the cronRunner from collected entries and starts it.
 func (k *Kernel) startCronRunner() error {
+	// Inject kernel-level cron: trial reaper.
+	if k.cfg.Server.TrialDuration > 0 {
+		k.cronEntries = append(k.cronEntries, cronEntry{
+			def: sdk.CronDef{
+				ID:       "trial_reaper",
+				Schedule: "0 0 * * *", // daily at midnight UTC
+				Timeout:  2 * time.Minute,
+				Description: sdk.TranslatableField{
+					"en": "Deactivate expired trial module activations",
+					"ar": "تعطيل تفعيلات الوحدات التجريبية المنتهية",
+				},
+			},
+			moduleID:    "kernel",
+			qualifiedID: "kernel.trial_reaper",
+			handler:     k.ReapExpiredTrials,
+		})
+	}
+
 	if len(k.cronEntries) == 0 {
-		k.logger.Info("no cron jobs registered — scheduler will idle")
+		k.logger.Info("no cron jobs registered -- scheduler will idle")
 	}
 
 	runner, err := newCronRunner(k.db, k.redis, k.lockProvider, k.logger.With("component", "cron"))
