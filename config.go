@@ -42,6 +42,12 @@ type ServerConfig struct {
 	// CacheTTL is how long resolved user/permission data is cached
 	// in the kernel middleware layer (default: 15m).
 	CacheTTL time.Duration `mapstructure:"cache_ttl"`
+
+	// TrialDuration is how long feature modules remain active after
+	// a tenant is provisioned. When a tenant is created, all TypeFeature
+	// modules are activated with an expires_at set to now + TrialDuration.
+	// Set to 0 to disable trial provisioning (default: 7 days).
+	TrialDuration time.Duration `mapstructure:"trial_duration"`
 }
 
 // DatabaseConfig holds PostgreSQL connection settings.
@@ -120,6 +126,7 @@ func DefaultConfig() Config {
 			IdleTimeout:     60 * time.Second,
 			ShutdownTimeout: 30 * time.Second,
 			CacheTTL:        15 * time.Minute,
+			TrialDuration:   7 * 24 * time.Hour,
 		},
 		Database: DatabaseConfig{
 			Host:            "localhost",
