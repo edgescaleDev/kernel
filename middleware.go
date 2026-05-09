@@ -233,6 +233,7 @@ func (k *Kernel) resolveUser() gin.HandlerFunc {
 		cacheKey := "middleware_user:" + sub + ":" + tenantID.String()
 		type cachePayload struct {
 			ID          uuid.UUID `json:"id"`
+			MemberID    uuid.UUID `json:"member_id"`
 			Permissions []string  `json:"permissions"`
 		}
 
@@ -262,6 +263,7 @@ func (k *Kernel) resolveUser() gin.HandlerFunc {
 				return
 			}
 			payload.ID = resolved.InternalID
+			payload.MemberID = resolved.MemberID
 			payload.Permissions = resolved.Permissions
 
 			// Store in cache.
@@ -272,8 +274,9 @@ func (k *Kernel) resolveUser() gin.HandlerFunc {
 			}
 		}
 
-		// Store internal user UUID for downstream handlers.
+		// Store internal user UUID and tenant membership ID for downstream handlers.
 		c.Set("internal_user_id", payload.ID)
+		c.Set("tenant_member_id", payload.MemberID)
 		c.Set("permissions", sdk.NewPermissionSet(payload.Permissions))
 		c.Next()
 	}

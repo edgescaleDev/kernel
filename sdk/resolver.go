@@ -34,6 +34,11 @@ type ResolvedUser struct {
 	// InternalID is the kernel-internal UUID for the user.
 	InternalID uuid.UUID
 
+	// MemberID is the tenant membership record UUID (the primary key of the
+	// membership row linking this user to the resolved tenant). It is uuid.Nil
+	// when resolving without a tenant context (global routes) or for API keys.
+	MemberID uuid.UUID
+
 	// Permissions is the list of permission keys granted to this user
 	// in the resolved context (tenant-scoped or platform-scoped).
 	Permissions []string
