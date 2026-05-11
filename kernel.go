@@ -70,6 +70,9 @@ type Kernel struct {
 	lockProvider     sdk.LockProvider
 	objectStore      sdk.ObjectStore
 
+	// Platform tenant resolver (set by consumer, typically IAM module).
+	platformTenantResolver sdk.PlatformTenantResolver
+
 	// Cron scheduler.
 	cronRunner  *cronRunner
 	cronEntries []cronEntry
@@ -216,6 +219,14 @@ func (k *Kernel) SetLockProvider(provider sdk.LockProvider) {
 // Must be called before Boot(). If not set, all storage operations will return errors.
 func (k *Kernel) SetStorage(store sdk.ObjectStore) {
 	k.objectStore = store
+}
+
+// SetPlatformTenantResolver sets the resolver that provides the platform
+// tenant UUID to all modules via sdk.Context.PlatformTenantID.
+// Typically set by the consumer after constructing the IAM module.
+// Must be called before Boot().
+func (k *Kernel) SetPlatformTenantResolver(resolver sdk.PlatformTenantResolver) {
+	k.platformTenantResolver = resolver
 }
 
 // Boot connects to infrastructure, validates the dependency graph,

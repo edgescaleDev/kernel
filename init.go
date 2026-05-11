@@ -1,10 +1,12 @@
 package kernel
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 
 	"github.com/edgescaleDev/kernel/sdk"
+	"github.com/google/uuid"
 )
 
 // initModules builds an sdk.Context for each module and calls Init() in
@@ -82,6 +84,17 @@ func (k *Kernel) buildContext(manifest sdk.Manifest) sdk.Context {
 		ServiceID:          moduleID,
 		ValidPermissionKey: k.validPermissionKey,
 	}
+
+	// Platform tenant resolver: delegates to the pluggable implementation
+	// or returns a clear error when no resolver is configured.
+	if k.platformTenantResolver != nil {
+		ctx.PlatformTenantID = k.platformTenantResolver.ResolvePlatformTenantID
+	} else {
+		ctx.PlatformTenantID = func(_ context.Context) (uuid.UUID, error) {
+			return uuid.Nil, fmt.Errorf("kernel: no platform tenant resolver configured; call SetPlatformTenantResolver before Boot()")
+		}
+	}
+
 	ctx.SetReaders(k.readers)
 
 	// Scoped Redis: all keys prefixed with "module:{id}:".

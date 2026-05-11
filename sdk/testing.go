@@ -21,6 +21,9 @@ import (
 //	events := ctx.Bus.(*sdk.TestBus).Events()
 func NewTestContext(moduleID string) *Context {
 	bus := &TestBus{}
+	// Stable platform tenant UUID for tests. Tests can override
+	// ctx.PlatformTenantID if they need a specific value.
+	platformID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
 	return &Context{
 		Logger:    slog.Default().With("module", moduleID),
 		Bus:       bus,
@@ -31,6 +34,9 @@ func NewTestContext(moduleID string) *Context {
 		Storage:   &TestObjectStore{},
 		readers:   NewReaderRegistry(),
 		ServiceID: moduleID,
+		PlatformTenantID: func(_ context.Context) (uuid.UUID, error) {
+			return platformID, nil
+		},
 	}
 }
 
