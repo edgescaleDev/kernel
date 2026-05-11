@@ -66,3 +66,13 @@ type PlatformAdmin struct {
 	Email  string
 	Role   string
 }
+
+// PlatformTenantResolver resolves the platform (genesis) tenant UUID.
+// The IAM module provides the production implementation. Other modules
+// consume this through sdk.Context.PlatformTenantID without needing
+// cross-module reader access to IAM.
+type PlatformTenantResolver interface {
+	// ResolvePlatformTenantID returns the UUID of the platform tenant.
+	// Implementations should cache the result for performance.
+	ResolvePlatformTenantID(ctx context.Context) (uuid.UUID, error)
+}

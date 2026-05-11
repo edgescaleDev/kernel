@@ -21,6 +21,8 @@ func TestKernelMigrations_Embedded(t *testing.T) {
 		"002_module_registry.down.sql",
 		"003_cron_executions.up.sql",
 		"003_cron_executions.down.sql",
+		"004_activation_expiry.up.sql",
+		"004_activation_expiry.down.sql",
 	}
 
 	for _, name := range expected {
@@ -42,19 +44,21 @@ func TestKernelMigrations_CollectFiles(t *testing.T) {
 		t.Fatalf("CollectMigrationFiles: %v", err)
 	}
 
-	if len(files) != 3 {
-		t.Errorf("expected 3 migration files, got %d: %v", len(files), files)
+	if len(files) != 4 {
+		t.Errorf("expected 4 migration files, got %d: %v", len(files), files)
 	}
 
 	// Verify sort order.
-	if len(files) >= 1 && files[0] != "001_schema_migrations.up.sql" {
-		t.Errorf("first file = %q, want 001_schema_migrations.up.sql", files[0])
+	expectedOrder := []string{
+		"001_schema_migrations.up.sql",
+		"002_module_registry.up.sql",
+		"003_cron_executions.up.sql",
+		"004_activation_expiry.up.sql",
 	}
-	if len(files) >= 2 && files[1] != "002_module_registry.up.sql" {
-		t.Errorf("second file = %q, want 002_module_registry.up.sql", files[1])
-	}
-	if len(files) >= 3 && files[2] != "003_cron_executions.up.sql" {
-		t.Errorf("third file = %q, want 003_cron_executions.up.sql", files[2])
+	for i, want := range expectedOrder {
+		if i < len(files) && files[i] != want {
+			t.Errorf("files[%d] = %q, want %q", i, files[i], want)
+		}
 	}
 }
 

@@ -87,6 +87,7 @@ func main() {
 	//   k.SetSearchEngine(meilisearch.New(host, key))
 	//   k.SetOperationTracker(operations.NewTracker(db))
 	//   k.SetFeatureFlags(featureflags.New(db, rdb))
+	//   k.SetPlatformTenantResolver(iamModule)  // exposes platform tenant ID to all modules
 
 	// Start: go run main.go serve
 	// Migrate: go run main.go migrate

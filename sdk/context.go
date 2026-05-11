@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/google/uuid"
@@ -78,6 +79,11 @@ type Context struct {
 	// keys at write-time (e.g., when assigning permissions to roles).
 	// The wildcard key "*" is always considered valid.
 	ValidPermissionKey func(key string) bool
+
+	// PlatformTenantID resolves the platform (genesis) tenant UUID.
+	// Modules call this instead of querying IAM via cross-module readers.
+	// Returns an error if no platform tenant has been provisioned yet.
+	PlatformTenantID func(ctx context.Context) (uuid.UUID, error)
 }
 
 // Reader returns a type-safe cross-service reader.
