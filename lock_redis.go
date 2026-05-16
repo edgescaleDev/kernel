@@ -7,7 +7,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/edgescaleDev/kernel/sdk"
+	"github.com/kernel-contrib/sdk"
 )
 
 // RedisLockProvider implements sdk.LockProvider using Redis SET NX EX.

@@ -15,7 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/edgescaleDev/kernel/internal"
-	"github.com/edgescaleDev/kernel/sdk"
+	"github.com/kernel-contrib/sdk"
 	"gorm.io/gorm"
 )
 

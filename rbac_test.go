@@ -3,7 +3,7 @@ package kernel
 import (
 	"testing"
 
-	"github.com/edgescaleDev/kernel/sdk"
+	"github.com/kernel-contrib/sdk"
 )
 
 func TestPermissionSet_ExactMatch(t *testing.T) {

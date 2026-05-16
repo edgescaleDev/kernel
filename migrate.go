@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/edgescaleDev/kernel/internal"
-	"github.com/edgescaleDev/kernel/sdk"
+	"github.com/kernel-contrib/sdk"
 	"gorm.io/gorm"
 )
 

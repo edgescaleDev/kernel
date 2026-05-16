@@ -7,7 +7,7 @@ import (
 	"testing/fstest"
 
 	"github.com/edgescaleDev/kernel/internal"
-	"github.com/edgescaleDev/kernel/sdk"
+	"github.com/kernel-contrib/sdk"
 )
 
 // ─── validateSchema ───────────────────────────────────────────────────────────

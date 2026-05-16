@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/edgescaleDev/kernel/internal"
-	"github.com/edgescaleDev/kernel/sdk"
+	"github.com/kernel-contrib/sdk"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )

@@ -14,7 +14,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/edgescaleDev/kernel/internal"
-	"github.com/edgescaleDev/kernel/sdk"
+	"github.com/kernel-contrib/sdk"
 )
 
 // cronEntry is a fully-resolved cron job ready for scheduling.
