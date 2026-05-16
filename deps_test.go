@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/edgescaleDev/kernel/internal"
-	"github.com/edgescaleDev/kernel/sdk"
+	"github.com/kernel-contrib/sdk"
 )
 
 func TestTopoSort_Linear(t *testing.T) {

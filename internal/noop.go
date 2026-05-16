@@ -6,7 +6,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/edgescaleDev/kernel/sdk"
+	"github.com/kernel-contrib/sdk"
 )
 
 // NoopIdentityProvider rejects all authentication attempts.

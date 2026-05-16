@@ -8,7 +8,7 @@ import (
 	"testing/fstest"
 
 	"github.com/edgescaleDev/kernel"
-	"github.com/edgescaleDev/kernel/sdk"
+	"github.com/kernel-contrib/sdk"
 	"github.com/gin-gonic/gin"
 )
 

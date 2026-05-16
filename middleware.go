@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edgescaleDev/kernel/sdk"
+	"github.com/kernel-contrib/sdk"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
