@@ -6,7 +6,7 @@ require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-co-op/gocron/v2 v2.21.0
 	github.com/google/uuid v1.6.0
-	github.com/kernel-contrib/sdk v0.0.0-20260516221945-d787098a8efd
+	github.com/kernel-contrib/sdk v0.0.0-20260516224855-12fe72c77588
 	github.com/redis/go-redis/v9 v9.19.0
 	github.com/spf13/cobra v1.10.2
 	gorm.io/driver/postgres v1.6.0
