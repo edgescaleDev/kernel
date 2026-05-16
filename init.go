@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/kernel-contrib/sdk"
 	"github.com/google/uuid"
+	"github.com/kernel-contrib/sdk"
 )
 
 // initModules builds an sdk.Context for each module and calls Init() in
@@ -83,6 +83,7 @@ func (k *Kernel) buildContext(manifest sdk.Manifest) sdk.Context {
 		Storage:            k.objectStore,
 		ServiceID:          moduleID,
 		ValidPermissionKey: k.validPermissionKey,
+		AllPermissions:     k.allPermissions,
 	}
 
 	// Platform tenant resolver: delegates to the pluggable implementation

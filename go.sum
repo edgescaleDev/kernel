@@ -61,6 +61,8 @@ github.com/json-iterator/go v1.1.12 h1:PV8peI4a0ysnczrg+LtxykD8LfKY9ML6u2jnxaEnr
 github.com/json-iterator/go v1.1.12/go.mod h1:e30LSqwooZae/UwlEbR2852Gd8hjQvJoHmT4TnhNGBo=
 github.com/kernel-contrib/sdk v0.0.0-20260516221945-d787098a8efd h1:P5whASaZd/FT2kiOVLfl48AiDYltraka/phBgVNrJGk=
 github.com/kernel-contrib/sdk v0.0.0-20260516221945-d787098a8efd/go.mod h1:wCvw2pvr7eGjsw8+Pi1fg0av3ytqZknfRICHXgoI18Y=
+github.com/kernel-contrib/sdk v0.0.0-20260516224855-12fe72c77588 h1:u4zOQNJ1L//nJSNF9tJ4kptEYYHhiP0WLqSCbIesMcM=
+github.com/kernel-contrib/sdk v0.0.0-20260516224855-12fe72c77588/go.mod h1:wCvw2pvr7eGjsw8+Pi1fg0av3ytqZknfRICHXgoI18Y=
 github.com/klauspost/cpuid/v2 v2.3.0 h1:S4CRMLnYUhGeDFDqkGriYKdfoFlDnMtqTiI/sFzhA9Y=
 github.com/klauspost/cpuid/v2 v2.3.0/go.mod h1:hqwkgyIinND0mEev00jJYCxPNVRVXFQeu1XKlok6oO0=
 github.com/leodido/go-urn v1.4.0 h1:WT9HwE9SGECu3lg4d/dIA+jxlljEa1/ffXKmRjqdmIQ=

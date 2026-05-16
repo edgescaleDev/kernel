@@ -303,6 +303,18 @@ func (k *Kernel) validPermissionKey(key string) bool {
 	return false
 }
 
+// allPermissions returns every permission declared across all registered module
+// manifests. The result is built on each call by iterating all manifests.
+// IAM uses this to auto-populate system role templates (manager, member)
+// during tenant provisioning and startup reconciliation.
+func (k *Kernel) allPermissions() []sdk.Permission {
+	var all []sdk.Permission
+	for _, m := range k.manifests {
+		all = append(all, m.Permissions...)
+	}
+	return all
+}
+
 // Execute builds a Cobra command tree and runs it.
 // This is the main entry point for consumer applications.
 //
