@@ -3,8 +3,9 @@ package kernel
 import (
 	"net/http"
 
-	"github.com/kernel-contrib/sdk"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/kernel-contrib/sdk"
 )
 
 // handleHealthz is a liveness probe. Returns 200 if the kernel process is running.
@@ -123,5 +124,66 @@ func (k *Kernel) handleActiveModules(c *gin.Context) {
 	c.JSON(http.StatusOK, sdk.Envelope{
 		Success: true,
 		Result:  modules,
+	})
+}
+
+// handleGetModuleConfig returns a module's per-tenant config and schema.
+// GET /_kernel/:tenant_id/modules/:module_id/config
+func (k *Kernel) handleGetModuleConfig(c *gin.Context) {
+	tenantID, err := uuid.Parse(c.Param("tenant_id"))
+	if err != nil {
+		sdk.Error(c, sdk.BadRequest("invalid tenant id"))
+		return
+	}
+
+	moduleID := c.Param("module_id")
+	manifest, exists := k.manifests[moduleID]
+	if !exists {
+		sdk.Error(c, sdk.NotFound("module", moduleID))
+		return
+	}
+
+	mm := newModuleManager(k)
+	config, err := mm.GetConfig(c.Request.Context(), moduleID, tenantID)
+	if err != nil {
+		sdk.FromError(c, err)
+		return
+	}
+
+	sdk.OK(c, gin.H{
+		"module_id": moduleID,
+		"tenant_id": tenantID,
+		"config":    config,
+		"schema":    manifest.Config,
+	})
+}
+
+// handleSetModuleConfig updates a module's per-tenant config.
+// PUT /_kernel/:tenant_id/modules/:module_id/config
+func (k *Kernel) handleSetModuleConfig(c *gin.Context) {
+	tenantID, err := uuid.Parse(c.Param("tenant_id"))
+	if err != nil {
+		sdk.Error(c, sdk.BadRequest("invalid tenant id"))
+		return
+	}
+
+	moduleID := c.Param("module_id")
+
+	var values sdk.ModuleConfig
+	if err := c.ShouldBindJSON(&values); err != nil {
+		sdk.Error(c, sdk.BadRequest("invalid config payload"))
+		return
+	}
+
+	mm := newModuleManager(k)
+	if err := mm.SetConfig(c.Request.Context(), moduleID, tenantID, values); err != nil {
+		sdk.FromError(c, err)
+		return
+	}
+
+	sdk.OK(c, gin.H{
+		"module_id": moduleID,
+		"tenant_id": tenantID,
+		"config":    values,
 	})
 }

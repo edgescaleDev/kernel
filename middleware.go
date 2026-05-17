@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kernel-contrib/sdk"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/kernel-contrib/sdk"
 )
 
 // requestID generates a unique request ID and sets it on the context and response header.
