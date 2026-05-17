@@ -101,3 +101,74 @@ func newCoreStub(id string) *stubModule {
 		},
 	}
 }
+
+// newConfigStub creates a stubModule with ConfigFieldDef entries for testing.
+func newConfigStub(id string, fields []sdk.ConfigFieldDef) *stubModule {
+	return &stubModule{
+		manifest: sdk.Manifest{
+			ID:      id,
+			Name:    id,
+			Version: "1.0.0",
+			Type:    sdk.TypeFeature,
+			Schema:  "module_" + id,
+			Config:  fields,
+		},
+	}
+}
+
+func TestMergeDefaults_FillsMissingKeys(t *testing.T) {
+	k := New(DefaultConfig())
+	k.MustRegister(newConfigStub("billing", []sdk.ConfigFieldDef{
+		{Key: "monthly_limit", Type: "number", Default: 100},
+		{Key: "currency", Type: "text", Default: "USD"},
+		{Key: "api_key", Type: "secret"}, // no default
+	}))
+	k.mm = newModuleManager(k)
+
+	cfg := sdk.ModuleConfig{}
+	result := k.mm.mergeDefaults(k.manifests["billing"], cfg)
+
+	if result.GetInt("monthly_limit", 0) != 100 {
+		t.Errorf("monthly_limit = %v, want 100", result["monthly_limit"])
+	}
+	if result.GetString("currency", "") != "USD" {
+		t.Errorf("currency = %v, want USD", result["currency"])
+	}
+	if result.Has("api_key") {
+		t.Error("api_key should not be set (no default)")
+	}
+}
+
+func TestMergeDefaults_DoesNotOverwriteExplicit(t *testing.T) {
+	k := New(DefaultConfig())
+	k.MustRegister(newConfigStub("billing", []sdk.ConfigFieldDef{
+		{Key: "monthly_limit", Type: "number", Default: 100},
+		{Key: "currency", Type: "text", Default: "USD"},
+	}))
+	k.mm = newModuleManager(k)
+
+	cfg := sdk.ModuleConfig{
+		"monthly_limit": 500,
+	}
+	result := k.mm.mergeDefaults(k.manifests["billing"], cfg)
+
+	if result.GetInt("monthly_limit", 0) != 500 {
+		t.Errorf("monthly_limit = %v, want 500 (explicit value)", result["monthly_limit"])
+	}
+	if result.GetString("currency", "") != "USD" {
+		t.Errorf("currency = %v, want USD (default)", result["currency"])
+	}
+}
+
+func TestMergeDefaults_EmptyConfig(t *testing.T) {
+	k := New(DefaultConfig())
+	k.MustRegister(newStub("simple")) // no Config fields
+	k.mm = newModuleManager(k)
+
+	cfg := sdk.ModuleConfig{}
+	result := k.mm.mergeDefaults(k.manifests["simple"], cfg)
+
+	if len(result) != 0 {
+		t.Errorf("expected empty config, got %v", result)
+	}
+}
