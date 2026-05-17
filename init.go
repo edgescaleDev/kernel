@@ -2,9 +2,12 @@ package kernel
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"time"
 
+	"github.com/edgescaleDev/kernel/internal"
 	"github.com/google/uuid"
 	"github.com/kernel-contrib/sdk"
 )
@@ -85,6 +88,47 @@ func (k *Kernel) buildContext(manifest sdk.Manifest) sdk.Context {
 		ServiceID:          moduleID,
 		ValidPermissionKey: k.validPermissionKey,
 		AllPermissions:     k.allPermissions,
+	}
+
+	// Config closure: reads this module's per-tenant config from the
+	// module_activations table. Redis-cached with auto-invalidation.
+	ctx.Config = func(tenantID uuid.UUID) sdk.ModuleConfig {
+		// Check Redis cache first.
+		if k.redis != nil {
+			cacheKey := fmt.Sprintf("config:%s:%s", moduleID, tenantID)
+			if cached, err := k.redis.Get(context.Background(), cacheKey).Bytes(); err == nil {
+				var cfg sdk.ModuleConfig
+				if json.Unmarshal(cached, &cfg) == nil {
+					return cfg
+				}
+			}
+		}
+
+		// Fall back to database.
+		var activation internal.ModuleActivation
+		result := k.db.
+			Select("config").
+			Where("module_id = ? AND tenant_id = ?", moduleID, tenantID.String()).
+			First(&activation)
+		if result.Error != nil || activation.Config == nil {
+			return sdk.ModuleConfig{}
+		}
+
+		cfg := sdk.ModuleConfig(activation.Config)
+
+		// Cache the result.
+		if k.redis != nil {
+			cacheKey := fmt.Sprintf("config:%s:%s", moduleID, tenantID)
+			if data, marshalErr := json.Marshal(cfg); marshalErr == nil {
+				ttl := time.Minute
+				if k.cfg.Server.CacheTTL > 0 {
+					ttl = k.cfg.Server.CacheTTL
+				}
+				k.redis.Set(context.Background(), cacheKey, data, ttl)
+			}
+		}
+
+		return cfg
 	}
 
 	// Platform tenant resolver: delegates to the pluggable implementation

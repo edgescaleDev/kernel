@@ -34,13 +34,14 @@ func (ModuleRecord) TableName() string {
 
 // ModuleActivation maps to the public.module_activations table.
 type ModuleActivation struct {
-	ModuleID    string     `gorm:"primaryKey;column:module_id"`
-	TenantID    string     `gorm:"primaryKey;column:tenant_id;type:uuid"`
-	Active      bool       `gorm:"column:active;default:true"`
-	ActivatedBy string     `gorm:"column:activated_by;type:uuid"`
-	ExpiresAt   *time.Time `gorm:"column:expires_at"`
-	CreatedAt   time.Time  `gorm:"column:created_at;autoCreateTime"`
-	UpdatedAt   time.Time  `gorm:"column:updated_at;autoUpdateTime"`
+	ModuleID    string         `gorm:"primaryKey;column:module_id"`
+	TenantID    string         `gorm:"primaryKey;column:tenant_id;type:uuid"`
+	Active      bool           `gorm:"column:active;default:true"`
+	Config      map[string]any `gorm:"column:config;type:jsonb;serializer:json"`
+	ActivatedBy string         `gorm:"column:activated_by;type:uuid"`
+	ExpiresAt   *time.Time     `gorm:"column:expires_at"`
+	CreatedAt   time.Time      `gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt   time.Time      `gorm:"column:updated_at;autoUpdateTime"`
 }
 
 func (ModuleActivation) TableName() string {

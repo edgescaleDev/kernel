@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"time"
@@ -404,10 +405,16 @@ func (mm *moduleManager) toSDKActivation(a internal.ModuleActivation) *sdk.Modul
 	tenantID, _ := uuid.Parse(a.TenantID)
 	activatedBy, _ := uuid.Parse(a.ActivatedBy)
 
+	cfg := sdk.ModuleConfig(a.Config)
+	if cfg == nil {
+		cfg = sdk.ModuleConfig{}
+	}
+
 	result := &sdk.ModuleActivation{
 		ModuleID:    a.ModuleID,
 		TenantID:    tenantID,
 		Active:      a.Active,
+		Config:      cfg,
 		ExpiresAt:   a.ExpiresAt,
 		ActivatedBy: activatedBy,
 		CreatedAt:   a.CreatedAt,
@@ -421,4 +428,92 @@ func (mm *moduleManager) toSDKActivation(a internal.ModuleActivation) *sdk.Modul
 	}
 
 	return result
+}
+
+// ── Config management ────────────────────────────────────────────────────────
+
+func (mm *moduleManager) GetConfig(ctx context.Context, moduleID string, tenantID uuid.UUID) (sdk.ModuleConfig, error) {
+	if _, ok := mm.manifests[moduleID]; !ok {
+		return nil, sdk.NotFound("module", moduleID)
+	}
+
+	// Check Redis cache first.
+	if mm.redis != nil {
+		cacheKey := fmt.Sprintf("config:%s:%s", moduleID, tenantID)
+		if cached, err := mm.redis.Get(ctx, cacheKey).Bytes(); err == nil {
+			var cfg sdk.ModuleConfig
+			if json.Unmarshal(cached, &cfg) == nil {
+				return cfg, nil
+			}
+		}
+	}
+
+	// Fall back to database.
+	var activation internal.ModuleActivation
+	result := mm.db.WithContext(ctx).
+		Select("config").
+		Where("module_id = ? AND tenant_id = ?", moduleID, tenantID.String()).
+		First(&activation)
+	if result.Error != nil {
+		if result.Error == gorm.ErrRecordNotFound {
+			return sdk.ModuleConfig{}, nil
+		}
+		return nil, fmt.Errorf("kernel: get config: %w", result.Error)
+	}
+
+	cfg := sdk.ModuleConfig(activation.Config)
+	if cfg == nil {
+		cfg = sdk.ModuleConfig{}
+	}
+
+	// Cache the result.
+	if mm.redis != nil {
+		cacheKey := fmt.Sprintf("config:%s:%s", moduleID, tenantID)
+		if data, marshalErr := json.Marshal(cfg); marshalErr == nil {
+			mm.redis.Set(ctx, cacheKey, data, mm.cacheTTL)
+		}
+	}
+
+	return cfg, nil
+}
+
+func (mm *moduleManager) SetConfig(ctx context.Context, moduleID string, tenantID uuid.UUID, values sdk.ModuleConfig) error {
+	manifest, ok := mm.manifests[moduleID]
+	if !ok {
+		return sdk.NotFound("module", moduleID)
+	}
+
+	// Validate required fields against the manifest schema.
+	for _, field := range manifest.Config {
+		if !field.Required {
+			continue
+		}
+		v, exists := values[field.Key]
+		if !exists || v == nil || v == "" {
+			return sdk.BadRequest("required config field missing: " + field.Key)
+		}
+	}
+
+	// Update the config column.
+	result := mm.db.WithContext(ctx).
+		Model(&internal.ModuleActivation{}).
+		Where("module_id = ? AND tenant_id = ?", moduleID, tenantID.String()).
+		Updates(map[string]any{
+			"config":     values,
+			"updated_at": time.Now(),
+		})
+	if result.Error != nil {
+		return fmt.Errorf("kernel: set config: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return sdk.NotFound("activation", moduleID)
+	}
+
+	// Bust the config cache.
+	if mm.redis != nil {
+		cacheKey := fmt.Sprintf("config:%s:%s", moduleID, tenantID)
+		mm.redis.Del(ctx, cacheKey)
+	}
+
+	return nil
 }

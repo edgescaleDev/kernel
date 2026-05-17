@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/kernel-contrib/sdk"
 	"github.com/gin-gonic/gin"
+	"github.com/kernel-contrib/sdk"
 )
 
 // setupRouter creates the Gin engine, applies the global middleware chain,
@@ -41,6 +41,12 @@ func (k *Kernel) setupRouter() {
 		kernelAPI.GET("/modules", k.handleListModules)
 		kernelAPI.GET("/modules/active", k.handleActiveModules)
 		kernelAPI.GET("/permissions", k.handleListPermissions)
+
+		// Per-tenant module config (platform admin only).
+		configAPI := kernelAPI.Group("/:tenant_id/modules/:module_id")
+		configAPI.Use(k.requirePlatformAdmin())
+		configAPI.GET("/config", k.handleGetModuleConfig)
+		configAPI.PUT("/config", k.handleSetModuleConfig)
 	}
 
 	// /_kernel/crons — cron admin API (platform admin only).
