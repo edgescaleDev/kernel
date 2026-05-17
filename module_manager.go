@@ -22,6 +22,7 @@ type moduleManager struct {
 	depOrder  []string
 	db        *gorm.DB
 	redis     *redis.Client
+	bus       sdk.EventBus
 	cacheTTL  time.Duration
 }
 
@@ -37,6 +38,7 @@ func newModuleManager(k *Kernel) *moduleManager {
 		depOrder:  k.depOrder,
 		db:        k.db,
 		redis:     k.redis,
+		bus:       k.bus,
 		cacheTTL:  ttl,
 	}
 }
@@ -444,7 +446,8 @@ func (mm *moduleManager) toSDKActivation(a internal.ModuleActivation) *sdk.Modul
 // ── Config management ────────────────────────────────────────────────────────
 
 func (mm *moduleManager) GetConfig(ctx context.Context, moduleID string, tenantID uuid.UUID) (sdk.ModuleConfig, error) {
-	if _, ok := mm.manifests[moduleID]; !ok {
+	manifest, ok := mm.manifests[moduleID]
+	if !ok {
 		return nil, sdk.NotFound("module", moduleID)
 	}
 
@@ -467,7 +470,7 @@ func (mm *moduleManager) GetConfig(ctx context.Context, moduleID string, tenantI
 		First(&activation)
 	if result.Error != nil {
 		if result.Error == gorm.ErrRecordNotFound {
-			return sdk.ModuleConfig{}, nil
+			return mm.mergeDefaults(manifest, sdk.ModuleConfig{}), nil
 		}
 		return nil, fmt.Errorf("kernel: get config: %w", result.Error)
 	}
@@ -477,7 +480,10 @@ func (mm *moduleManager) GetConfig(ctx context.Context, moduleID string, tenantI
 		cfg = sdk.ModuleConfig{}
 	}
 
-	// Cache the result.
+	// Merge manifest defaults for any keys not explicitly set.
+	cfg = mm.mergeDefaults(manifest, cfg)
+
+	// Cache the merged result.
 	if mm.redis != nil {
 		cacheKey := fmt.Sprintf("config:%s:%s", moduleID, tenantID)
 		if data, marshalErr := json.Marshal(cfg); marshalErr == nil {
@@ -526,5 +532,30 @@ func (mm *moduleManager) SetConfig(ctx context.Context, moduleID string, tenantI
 		mm.redis.Del(ctx, cacheKey)
 	}
 
+	// Notify interested modules that config has changed.
+	if mm.bus != nil {
+		_ = mm.bus.Publish(ctx, "kernel.module.config.updated", map[string]any{
+			"module_id": moduleID,
+			"tenant_id": tenantID,
+		})
+	}
+
 	return nil
+}
+
+// mergeDefaults fills in any missing config keys with their manifest-declared
+// default values. This makes the kernel the single source of truth for defaults.
+func (mm *moduleManager) mergeDefaults(manifest sdk.Manifest, cfg sdk.ModuleConfig) sdk.ModuleConfig {
+	if len(manifest.Config) == 0 {
+		return cfg
+	}
+	for _, field := range manifest.Config {
+		if field.Default == nil {
+			continue
+		}
+		if _, exists := cfg[field.Key]; !exists {
+			cfg[field.Key] = field.Default
+		}
+	}
+	return cfg
 }
