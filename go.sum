@@ -59,8 +59,6 @@ github.com/jonboulle/clockwork v0.5.0 h1:Hyh9A8u51kptdkR+cqRpT1EebBwTn1oK9YfGYbd
 github.com/jonboulle/clockwork v0.5.0/go.mod h1:3mZlmanh0g2NDKO5TWZVJAfofYk64M7XN3SzBPjZF60=
 github.com/json-iterator/go v1.1.12 h1:PV8peI4a0ysnczrg+LtxykD8LfKY9ML6u2jnxaEnrnM=
 github.com/json-iterator/go v1.1.12/go.mod h1:e30LSqwooZae/UwlEbR2852Gd8hjQvJoHmT4TnhNGBo=
-github.com/kernel-contrib/sdk v0.0.0-20260517014454-0cb2ee36b2b4 h1:jC2MiXseFOwGGg0pITaRPeq4dou8JmF/iWr54JHRG6Y=
-github.com/kernel-contrib/sdk v0.0.0-20260517014454-0cb2ee36b2b4/go.mod h1:wCvw2pvr7eGjsw8+Pi1fg0av3ytqZknfRICHXgoI18Y=
 github.com/kernel-contrib/sdk v0.0.0-20260517023559-29dcbf6d1127 h1:5jz/iso9ofS8kji1rVLTTqxT1XyOPwJ+5C77lyE1pPA=
 github.com/kernel-contrib/sdk v0.0.0-20260517023559-29dcbf6d1127/go.mod h1:wCvw2pvr7eGjsw8+Pi1fg0av3ytqZknfRICHXgoI18Y=
 github.com/klauspost/cpuid/v2 v2.3.0 h1:S4CRMLnYUhGeDFDqkGriYKdfoFlDnMtqTiI/sFzhA9Y=
