@@ -94,13 +94,13 @@ func (k *Kernel) DeprovisionTenant(ctx context.Context, tenantID uuid.UUID) erro
 		return fmt.Errorf("deprovision tenant %s: %w", tenantID, result.Error)
 	}
 
-	// Invalidate Redis cache for all modules.
-	if k.redis != nil {
-		for _, m := range k.orderedModules() {
-			cacheKey := fmt.Sprintf("module:%s:active:%s", m.Manifest().ID, tenantID)
-			k.redis.Del(ctx, cacheKey)
-		}
+	// Bust activation and config caches for all modules.
+	moduleIDs := make([]string, 0, len(k.modules))
+	for _, m := range k.orderedModules() {
+		moduleIDs = append(moduleIDs, m.Manifest().ID)
 	}
+	k.mm.bustCache(ctx, tenantID, moduleIDs)
+	k.mm.bustConfigCache(ctx, tenantID, moduleIDs)
 
 	k.logger.Info("tenant deprovisioned",
 		"tenant_id", tenantID,
@@ -158,15 +158,21 @@ func (k *Kernel) ReapExpiredTrials(ctx context.Context) error {
 		return fmt.Errorf("kernel: deactivate expired trials: %w", result.Error)
 	}
 
-	// Collect affected tenants (deduplicated) and bust Redis caches.
+	// Collect affected tenants (deduplicated) and bust caches.
 	affectedTenants := make(map[string]bool)
+	modulesByTenant := make(map[string][]string)
 	for _, a := range expired {
 		affectedTenants[a.TenantID] = true
+		modulesByTenant[a.TenantID] = append(modulesByTenant[a.TenantID], a.ModuleID)
+	}
 
-		if k.redis != nil {
-			cacheKey := fmt.Sprintf("module:%s:active:%s", a.ModuleID, a.TenantID)
-			k.redis.Del(ctx, cacheKey)
+	for tenantIDStr, moduleIDs := range modulesByTenant {
+		tid, err := uuid.Parse(tenantIDStr)
+		if err != nil {
+			continue
 		}
+		k.mm.bustCache(ctx, tid, moduleIDs)
+		k.mm.bustConfigCache(ctx, tid, moduleIDs)
 	}
 
 	k.logger.Info("reaped expired trials",

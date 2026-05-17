@@ -354,13 +354,24 @@ func (mm *moduleManager) checkActive(moduleID string, tenantID uuid.UUID) bool {
 	return active
 }
 
-// bustCache invalidates the Redis cache for the given modules.
+// bustCache invalidates the Redis activation cache for the given modules.
 func (mm *moduleManager) bustCache(ctx context.Context, tenantID uuid.UUID, moduleIDs []string) {
 	if mm.redis == nil {
 		return
 	}
 	for _, id := range moduleIDs {
 		cacheKey := fmt.Sprintf("module:%s:active:%s", id, tenantID)
+		mm.redis.Del(ctx, cacheKey)
+	}
+}
+
+// bustConfigCache invalidates the Redis config cache for the given modules.
+func (mm *moduleManager) bustConfigCache(ctx context.Context, tenantID uuid.UUID, moduleIDs []string) {
+	if mm.redis == nil {
+		return
+	}
+	for _, id := range moduleIDs {
+		cacheKey := fmt.Sprintf("config:%s:%s", id, tenantID)
 		mm.redis.Del(ctx, cacheKey)
 	}
 }
