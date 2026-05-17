@@ -112,70 +112,24 @@ func (k *Kernel) DeprovisionTenant(ctx context.Context, tenantID uuid.UUID) erro
 // ActivateModule enables a specific module for a tenant permanently
 // (no expiry). This clears any existing trial expiry.
 func (k *Kernel) ActivateModule(ctx context.Context, moduleID string, tenantID uuid.UUID, activatedBy uuid.UUID) error {
-	return k.ActivateModuleWithExpiry(ctx, moduleID, tenantID, activatedBy, nil)
+	mm := newModuleManager(k)
+	return mm.Activate(ctx, tenantID, activatedBy, moduleID)
 }
 
 // ActivateModuleWithExpiry enables a specific module for a tenant with an
 // optional expiry. Pass nil for expiresAt to activate permanently.
 func (k *Kernel) ActivateModuleWithExpiry(ctx context.Context, moduleID string, tenantID uuid.UUID, activatedBy uuid.UUID, expiresAt *time.Time) error {
-	now := time.Now()
-	activation := internal.ModuleActivation{
-		ModuleID:    moduleID,
-		TenantID:    tenantID.String(),
-		Active:      true,
-		ActivatedBy: activatedBy.String(),
-		ExpiresAt:   expiresAt,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+	mm := newModuleManager(k)
+	if expiresAt == nil {
+		return mm.Activate(ctx, tenantID, activatedBy, moduleID)
 	}
-
-	result := k.db.WithContext(ctx).
-		Where("module_id = ? AND tenant_id = ?", moduleID, tenantID.String()).
-		Assign(internal.ModuleActivation{
-			Active:      true,
-			ActivatedBy: activatedBy.String(),
-			ExpiresAt:   expiresAt,
-			UpdatedAt:   now,
-		}).
-		FirstOrCreate(&activation)
-
-	if result.Error != nil {
-		return fmt.Errorf("activate module %q for tenant %s: %w", moduleID, tenantID, result.Error)
-	}
-
-	// Invalidate cache.
-	if k.redis != nil {
-		cacheKey := fmt.Sprintf("module:%s:active:%s", moduleID, tenantID)
-		k.redis.Del(ctx, cacheKey)
-	}
-
-	k.logger.Info("module activated",
-		"module", moduleID,
-		"tenant_id", tenantID,
-		"expires_at", expiresAt,
-	)
-	return nil
+	return mm.ActivateWithExpiry(ctx, tenantID, activatedBy, *expiresAt, moduleID)
 }
 
 // DeactivateModule disables a specific module for a tenant.
 func (k *Kernel) DeactivateModule(ctx context.Context, moduleID string, tenantID uuid.UUID) error {
-	result := k.db.WithContext(ctx).
-		Model(&internal.ModuleActivation{}).
-		Where("module_id = ? AND tenant_id = ?", moduleID, tenantID.String()).
-		Update("active", false)
-
-	if result.Error != nil {
-		return fmt.Errorf("deactivate module %q for tenant %s: %w", moduleID, tenantID, result.Error)
-	}
-
-	// Invalidate cache.
-	if k.redis != nil {
-		cacheKey := fmt.Sprintf("module:%s:active:%s", moduleID, tenantID)
-		k.redis.Del(ctx, cacheKey)
-	}
-
-	k.logger.Info("module deactivated", "module", moduleID, "tenant_id", tenantID)
-	return nil
+	mm := newModuleManager(k)
+	return mm.Deactivate(ctx, tenantID, moduleID)
 }
 
 // ReapExpiredTrials deactivates all module activations whose trial has expired.
