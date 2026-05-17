@@ -100,6 +100,22 @@ func (k *Kernel) setupRouter() {
 
 				router = sdk.NewRouter(adminAuth, adminAuth, adminPublic, sdk.RequirePermission, moduleID)
 
+			case sdk.RouteCustom:
+				// Custom: un-namespaced routes — module controls the full path.
+				// Global authenticated: /v1/{path} — auth only, no tenant context.
+				globalAuth := v1.Group("")
+				globalAuth.Use(k.resolveGlobalUser())
+
+				// Tenant-scoped: /v1/:tenant_id/{path} — auth + tenant + user.
+				// No moduleActivation check — custom routes bypass per-module activation.
+				tenantAuth := k.engine.Group("/v1/:tenant_id")
+				tenantAuth.Use(k.authenticate(), k.resolveTenant(), k.resolveUser())
+
+				// Public: /v1/public/{path} — no auth.
+				public := k.engine.Group("/v1/public")
+
+				router = sdk.NewRouter(globalAuth, tenantAuth, public, sdk.RequirePermission, moduleID)
+
 			default:
 				k.logger.Warn("unknown route type, skipping",
 					"module", moduleID,
