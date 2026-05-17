@@ -92,6 +92,7 @@ func (k *Kernel) buildContext(manifest sdk.Manifest) sdk.Context {
 
 	// Config closure: reads this module's per-tenant config from the
 	// module_activations table. Redis-cached with auto-invalidation.
+	// Defaults from ConfigFieldDef are merged for keys not explicitly set.
 	ctx.Config = func(tenantID uuid.UUID) sdk.ModuleConfig {
 		// Check Redis cache first.
 		if k.redis != nil {
@@ -110,13 +111,23 @@ func (k *Kernel) buildContext(manifest sdk.Manifest) sdk.Context {
 			Select("config").
 			Where("module_id = ? AND tenant_id = ?", moduleID, tenantID.String()).
 			First(&activation)
-		if result.Error != nil || activation.Config == nil {
-			return sdk.ModuleConfig{}
+
+		cfg := sdk.ModuleConfig{}
+		if result.Error == nil && activation.Config != nil {
+			cfg = sdk.ModuleConfig(activation.Config)
 		}
 
-		cfg := sdk.ModuleConfig(activation.Config)
+		// Merge manifest defaults for keys not explicitly set.
+		for _, field := range manifest.Config {
+			if field.Default == nil {
+				continue
+			}
+			if _, exists := cfg[field.Key]; !exists {
+				cfg[field.Key] = field.Default
+			}
+		}
 
-		// Cache the result.
+		// Cache the merged result.
 		if k.redis != nil {
 			cacheKey := fmt.Sprintf("config:%s:%s", moduleID, tenantID)
 			if data, marshalErr := json.Marshal(cfg); marshalErr == nil {
