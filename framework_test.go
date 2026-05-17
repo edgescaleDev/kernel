@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/edgescaleDev/kernel/internal"
+	"github.com/google/uuid"
 	"github.com/kernel-contrib/sdk"
 )
 
@@ -49,18 +50,22 @@ func TestCollectMigrationFiles(t *testing.T) {
 	// (Real test would use testing/fstest.MapFS but this validates the function signature.)
 }
 
-func TestIsModuleActive_UnregisteredModule(t *testing.T) {
+func TestCheckActive_UnregisteredModule(t *testing.T) {
 	k := New(DefaultConfig())
-	if k.isModuleActive("nonexistent", "some-tenant-id") {
+	// Boot initializes k.mm; no infra needed for this test.
+	k.mm = newModuleManager(k)
+
+	if k.mm.checkActive("nonexistent", uuid.New()) {
 		t.Error("unregistered module should not be active")
 	}
 }
 
-func TestIsModuleActive_CoreModule(t *testing.T) {
+func TestCheckActive_CoreModule(t *testing.T) {
 	k := New(DefaultConfig())
 	k.MustRegister(newCoreStub("auth"))
+	k.mm = newModuleManager(k)
 
-	if !k.isModuleActive("auth", "any-tenant-id") {
+	if !k.mm.checkActive("auth", uuid.New()) {
 		t.Error("core module should always be active")
 	}
 }

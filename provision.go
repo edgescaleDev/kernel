@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/edgescaleDev/kernel/internal"
-	"github.com/kernel-contrib/sdk"
 	"github.com/google/uuid"
+	"github.com/kernel-contrib/sdk"
 	"gorm.io/gorm"
 )
 
@@ -112,24 +112,21 @@ func (k *Kernel) DeprovisionTenant(ctx context.Context, tenantID uuid.UUID) erro
 // ActivateModule enables a specific module for a tenant permanently
 // (no expiry). This clears any existing trial expiry.
 func (k *Kernel) ActivateModule(ctx context.Context, moduleID string, tenantID uuid.UUID, activatedBy uuid.UUID) error {
-	mm := newModuleManager(k)
-	return mm.Activate(ctx, tenantID, activatedBy, moduleID)
+	return k.mm.Activate(ctx, tenantID, activatedBy, moduleID)
 }
 
 // ActivateModuleWithExpiry enables a specific module for a tenant with an
 // optional expiry. Pass nil for expiresAt to activate permanently.
 func (k *Kernel) ActivateModuleWithExpiry(ctx context.Context, moduleID string, tenantID uuid.UUID, activatedBy uuid.UUID, expiresAt *time.Time) error {
-	mm := newModuleManager(k)
 	if expiresAt == nil {
-		return mm.Activate(ctx, tenantID, activatedBy, moduleID)
+		return k.mm.Activate(ctx, tenantID, activatedBy, moduleID)
 	}
-	return mm.ActivateWithExpiry(ctx, tenantID, activatedBy, *expiresAt, moduleID)
+	return k.mm.ActivateWithExpiry(ctx, tenantID, activatedBy, *expiresAt, moduleID)
 }
 
 // DeactivateModule disables a specific module for a tenant.
 func (k *Kernel) DeactivateModule(ctx context.Context, moduleID string, tenantID uuid.UUID) error {
-	mm := newModuleManager(k)
-	return mm.Deactivate(ctx, tenantID, moduleID)
+	return k.mm.Deactivate(ctx, tenantID, moduleID)
 }
 
 // ReapExpiredTrials deactivates all module activations whose trial has expired.

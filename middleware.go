@@ -370,7 +370,7 @@ func (k *Kernel) moduleActivation(moduleID string) gin.HandlerFunc {
 			return
 		}
 
-		if !k.isModuleActive(moduleID, tenantID.String()) {
+		if !k.mm.checkActive(moduleID, tenantID) {
 			sdk.Error(c, sdk.Forbidden("module not activated for this tenant"))
 			return
 		}

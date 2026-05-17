@@ -102,7 +102,7 @@ func (k *Kernel) handleListModules(c *gin.Context) {
 // handleActiveModules returns modules that are active for the requesting tenant.
 // GET /_kernel/modules/active
 // Core modules are always included. Feature modules are filtered by the
-// module_activations table via isModuleActive (Redis cached).
+// module_activations table via moduleManager.checkActive (Redis cached).
 func (k *Kernel) handleActiveModules(c *gin.Context) {
 	tenantIDVal, hasTenant := c.Get("tenant_id")
 
@@ -112,8 +112,8 @@ func (k *Kernel) handleActiveModules(c *gin.Context) {
 
 		// If we have a tenant context, filter by activation status.
 		if hasTenant {
-			tenantID, _ := tenantIDVal.(string)
-			if !k.isModuleActive(manifest.ID, tenantID) {
+			tenantID, ok := tenantIDVal.(uuid.UUID)
+			if !ok || !k.mm.checkActive(manifest.ID, tenantID) {
 				continue
 			}
 		}
@@ -143,8 +143,7 @@ func (k *Kernel) handleGetModuleConfig(c *gin.Context) {
 		return
 	}
 
-	mm := newModuleManager(k)
-	config, err := mm.GetConfig(c.Request.Context(), moduleID, tenantID)
+	config, err := k.mm.GetConfig(c.Request.Context(), moduleID, tenantID)
 	if err != nil {
 		sdk.FromError(c, err)
 		return
@@ -175,8 +174,7 @@ func (k *Kernel) handleSetModuleConfig(c *gin.Context) {
 		return
 	}
 
-	mm := newModuleManager(k)
-	if err := mm.SetConfig(c.Request.Context(), moduleID, tenantID, values); err != nil {
+	if err := k.mm.SetConfig(c.Request.Context(), moduleID, tenantID, values); err != nil {
 		sdk.FromError(c, err)
 		return
 	}
