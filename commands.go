@@ -279,7 +279,7 @@ func (k *Kernel) moduleStatusCommand() *cobra.Command {
 			fmt.Fprintln(w, "──────\t────\t──────")
 			for _, m := range k.orderedModules() {
 				manifest := m.Manifest()
-				active := k.isModuleActive(manifest.ID, parsedTenant.String())
+				active := k.mm.checkActive(manifest.ID, parsedTenant)
 				fmt.Fprintf(w, "%s\t%s\t%v\n",
 					manifest.ID, manifest.Type.String(), active)
 			}

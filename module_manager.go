@@ -290,9 +290,20 @@ func (mm *moduleManager) activateBatch(ctx context.Context, tenantID uuid.UUID, 
 	return nil
 }
 
-// checkActive checks the Redis cache and falls back to DB.
-// Mirrors the existing kernel.isModuleActive logic.
+// checkActive checks whether a module is active for the given tenant.
+// Core modules always return true. Feature/integration modules are checked
+// against the module_activations table (Redis cached).
 func (mm *moduleManager) checkActive(moduleID string, tenantID uuid.UUID) bool {
+	manifest, exists := mm.manifests[moduleID]
+	if !exists {
+		return false
+	}
+
+	// Core modules are always active.
+	if manifest.Type.IsCore() {
+		return true
+	}
+
 	now := time.Now()
 
 	// Check Redis cache first.

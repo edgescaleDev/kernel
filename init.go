@@ -84,7 +84,7 @@ func (k *Kernel) buildContext(manifest sdk.Manifest) sdk.Context {
 		Features:           k.featureFlags,
 		Lock:               k.lockProvider,
 		Storage:            k.objectStore,
-		Modules:            newModuleManager(k),
+		Modules:            k.mm,
 		ServiceID:          moduleID,
 		ValidPermissionKey: k.validPermissionKey,
 		AllPermissions:     k.allPermissions,

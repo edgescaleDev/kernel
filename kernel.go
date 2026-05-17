@@ -77,6 +77,9 @@ type Kernel struct {
 	cronRunner  *cronRunner
 	cronEntries []cronEntry
 
+	// Module manager (singleton, initialized during Boot).
+	mm *moduleManager
+
 	// Custom CLI commands registered by the consumer.
 	customCommands []*cobra.Command
 
@@ -255,6 +258,9 @@ func (k *Kernel) Boot() error {
 
 	// 3. Install noop fallbacks for unset pluggable implementations.
 	k.installFallbacks()
+
+	// 4. Create the singleton module manager now that infra is connected.
+	k.mm = newModuleManager(k)
 
 	k.logger.Info("boot complete", "init_order", k.depOrder)
 	return nil
