@@ -16,6 +16,8 @@ import (
 
 	"github.com/edgescaleDev/kernel/internal"
 	"github.com/kernel-contrib/sdk"
+	"go.opentelemetry.io/otel/sdk/metric"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"gorm.io/gorm"
 )
 
@@ -82,6 +84,10 @@ type Kernel struct {
 
 	// Custom CLI commands registered by the consumer.
 	customCommands []*cobra.Command
+
+	// OpenTelemetry providers (nil when telemetry is disabled).
+	tp *sdktrace.TracerProvider
+	mp *metric.MeterProvider
 
 	// Shutdown coordination.
 	shutdownOnce sync.Once
@@ -259,7 +265,14 @@ func (k *Kernel) Boot() error {
 	// 3. Install noop fallbacks for unset pluggable implementations.
 	k.installFallbacks()
 
-	// 4. Create the singleton module manager now that infra is connected.
+	// 4. Bootstrap OpenTelemetry (traces, metrics, log correlation).
+	// Must happen after infra so the exporter can reach the collector,
+	// but before modules initialize so their tracers are live.
+	if err := k.initTelemetry(); err != nil {
+		return fmt.Errorf("kernel: telemetry init failed: %w", err)
+	}
+
+	// 5. Create the singleton module manager now that infra is connected.
 	k.mm = newModuleManager(k)
 
 	k.logger.Info("boot complete", "init_order", k.depOrder)

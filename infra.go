@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -71,6 +72,14 @@ func (k *Kernel) connectPostgres(ctx context.Context) error {
 	}
 
 	k.db = db
+
+	// Enable OTel tracing on every SQL query when telemetry is active.
+	if k.cfg.Telemetry.Enabled {
+		if err := k.db.Use(newOtelGormPlugin()); err != nil {
+			k.logger.Warn("failed to enable GORM tracing", "error", err)
+		}
+	}
+
 	return nil
 }
 
@@ -84,6 +93,13 @@ func (k *Kernel) connectRedis(ctx context.Context) error {
 
 	if err := client.Ping(ctx).Err(); err != nil {
 		return fmt.Errorf("ping: %w", err)
+	}
+
+	// Enable OTel tracing on every Redis command when telemetry is active.
+	if k.cfg.Telemetry.Enabled {
+		if err := redisotel.InstrumentTracing(client); err != nil {
+			k.logger.Warn("failed to enable Redis tracing", "error", err)
+		}
 	}
 
 	k.redis = client

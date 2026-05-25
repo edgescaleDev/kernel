@@ -3,9 +3,11 @@ package kernel
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kernel-contrib/sdk"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 )
 
 // setupRouter creates the Gin engine, applies the global middleware chain,
@@ -19,6 +21,9 @@ func (k *Kernel) setupRouter() {
 
 	// Global middleware - applied to every request.
 	k.engine.Use(
+		otelgin.Middleware(k.cfg.Telemetry.ServiceName,
+			otelgin.WithFilter(skipHealthProbes),
+		),
 		k.requestID(),
 		k.parseLocale(),
 		k.accessLog(),
@@ -166,4 +171,19 @@ func (k *Kernel) Serve() error {
 		return fmt.Errorf("kernel: serve failed: %w", err)
 	}
 	return nil
+}
+
+// skipHealthProbes returns false for health/readiness probe paths, which
+// tells otelgin to skip creating trace spans for those requests.
+// Kubernetes probes hit these endpoints every few seconds and would
+// otherwise flood SigNoz with noise.
+func skipHealthProbes(r *http.Request) bool {
+	return !isHealthProbe(r.URL.Path)
+}
+
+// isHealthProbe returns true if the path is a Kubernetes health or
+// readiness probe endpoint. Used by both the OTel filter and access
+// log middleware to keep probe traffic out of traces and logs.
+func isHealthProbe(path string) bool {
+	return strings.HasSuffix(path, "/healthz") || strings.HasSuffix(path, "/readyz")
 }

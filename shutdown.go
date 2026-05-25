@@ -52,6 +52,7 @@ func (k *Kernel) Shutdown(ctx context.Context) error {
 
 		// Close infrastructure connections.
 		k.logger.Info("closing infrastructure connections")
+		k.shutdownTelemetry(ctx)
 		k.closeInfra()
 
 		k.logger.Info("kernel shutdown complete")
