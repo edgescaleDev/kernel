@@ -42,8 +42,15 @@ func (k *Kernel) parseLocale() gin.HandlerFunc {
 }
 
 // accessLog logs each request with method, path, status, and duration.
+// Health and readiness probes are silently skipped to reduce log noise.
 func (k *Kernel) accessLog() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Skip logging for Kubernetes health probes.
+		if isHealthProbe(c.Request.URL.Path) {
+			c.Next()
+			return
+		}
+
 		start := time.Now()
 		c.Next()
 		duration := time.Since(start)

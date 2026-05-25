@@ -17,6 +17,11 @@ type Config struct {
 	// Redis configures the Redis connection.
 	Redis RedisConfig `mapstructure:"redis"`
 
+	// Telemetry configures OpenTelemetry instrumentation.
+	// When enabled, the kernel exports traces and metrics to an OTLP
+	// collector (e.g., SigNoz) and auto-instruments Gin, GORM, and Redis.
+	Telemetry TelemetryConfig `mapstructure:"telemetry"`
+
 	// Dev enables development mode with graceful degradation
 	// for optional infrastructure (task executor, search, etc.).
 	Dev DevConfig `mapstructure:"dev"`
@@ -116,6 +121,25 @@ type DevConfig struct {
 	Mode bool `mapstructure:"mode"`
 }
 
+// TelemetryConfig controls OpenTelemetry instrumentation.
+type TelemetryConfig struct {
+	// Enabled turns OTel instrumentation on (default: false).
+	// When false, all tracers and meters are noop.
+	Enabled bool `mapstructure:"enabled"`
+
+	// Endpoint is the OTLP gRPC collector address (default: "localhost:4317").
+	// In production, point this to the SigNoz OTel Collector service.
+	Endpoint string `mapstructure:"endpoint"`
+
+	// ServiceName is the logical service name reported to the collector
+	// (default: "kernel"). Maps to the OTel resource attribute service.name.
+	ServiceName string `mapstructure:"service_name"`
+
+	// Insecure disables TLS for the OTLP exporter (default: true).
+	// Set to false when the collector requires TLS.
+	Insecure bool `mapstructure:"insecure"`
+}
+
 // DefaultConfig returns a Config with sensible defaults for local development.
 func DefaultConfig() Config {
 	return Config{
@@ -139,6 +163,12 @@ func DefaultConfig() Config {
 		Redis: RedisConfig{
 			Addr: "localhost:6379",
 			DB:   0,
+		},
+		Telemetry: TelemetryConfig{
+			Enabled:     false,
+			Endpoint:    "localhost:4317",
+			ServiceName: "kernel",
+			Insecure:    true,
 		},
 	}
 }

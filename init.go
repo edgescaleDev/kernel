@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kernel-contrib/sdk"
+	"go.opentelemetry.io/otel"
 )
 
 // initModules builds an sdk.Context for each module and calls Init() in
@@ -85,6 +86,7 @@ func (k *Kernel) buildContext(manifest sdk.Manifest) sdk.Context {
 		ServiceID:          moduleID,
 		ValidPermissionKey: k.validPermissionKey,
 		AllPermissions:     k.allPermissions,
+		Tracer:             otel.Tracer(moduleID),
 	}
 
 	// Config closure: delegates to the singleton module manager which handles
